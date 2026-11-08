@@ -13,7 +13,8 @@ export class ApiError extends Error {
 }
 
 let inMemoryToken: string | null = null;
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+// const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+const apiBaseUrl = "https://paymentrecovery-server.onrender.com"
 
 function apiUrl(path: string): string {
   return `${apiBaseUrl}/api/v1${path}`;
