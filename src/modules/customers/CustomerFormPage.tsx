@@ -29,10 +29,13 @@ export function CustomerFormPage() {
     control,
     handleSubmit,
     setValue,
+    setError,
     watch,
     reset,
     formState: { errors },
   } = useForm({
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       displayName: "",
       companyName: "",
@@ -94,7 +97,18 @@ export function CustomerFormPage() {
       }
       navigate(`/customers/${id}`);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to save customer");
+      const issues = Array.isArray(err?.details) ? err.details : [];
+      let mappedIssues = 0;
+      for (const issue of issues) {
+        if (typeof issue?.path !== "string" || typeof issue?.message !== "string") continue;
+        setError(issue.path as any, { type: "server", message: issue.message });
+        mappedIssues += 1;
+      }
+      if (mappedIssues > 0) {
+        toast.error("Please correct the highlighted fields.");
+      } else {
+        toast.error(err?.message || "Failed to save customer");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +128,7 @@ export function CustomerFormPage() {
         description="Configure commercial details, credit terms, and contact hierarchy"
       />
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Core Identity */}
         <Card title="Primary Information">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -123,32 +137,44 @@ export function CustomerFormPage() {
               required
               placeholder="e.g. Acme Corp"
               error={errors.displayName?.message}
-              {...register("displayName", { required: "Display name is required" })}
+              {...register("displayName", {
+                required: "Display name is required.",
+                validate: (value) => Boolean(value?.trim()) || "Display name is required.",
+                maxLength: { value: 160, message: "Display name must be 160 characters or fewer." },
+              })}
             />
 
             <Input
               label="Legal Company Name"
               placeholder="e.g. Acme Enterprises Pvt Ltd"
-              {...register("companyName")}
+              error={errors.companyName?.message}
+              {...register("companyName", { maxLength: { value: 200, message: "Company name must be 200 characters or fewer." } })}
             />
 
             <Input
               label="GSTIN"
               placeholder="22AAAAA0000A1Z5"
-              {...register("gstin")}
+              error={errors.gstin?.message}
+              {...register("gstin", {
+                validate: (value) => !value || /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/i.test(value.trim()) || "Enter a valid 15-character GSTIN.",
+              })}
             />
 
             <Input
               label="Primary Phone"
               placeholder="+91 98765 43210"
-              {...register("phone")}
+              error={errors.phone?.message}
+              {...register("phone", { maxLength: { value: 20, message: "Phone number must be 20 characters or fewer." } })}
             />
 
             <Input
               label="Accounts Email"
               type="email"
               placeholder="billing@acme.com"
-              {...register("email")}
+              error={errors.email?.message}
+              {...register("email", {
+                validate: (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) || "Enter a valid email address.",
+              })}
             />
 
             <Input
@@ -157,7 +183,13 @@ export function CustomerFormPage() {
               min="0"
               max="365"
               placeholder="30"
-              {...register("defaultCreditDays", { valueAsNumber: true })}
+              error={errors.defaultCreditDays?.message}
+              {...register("defaultCreditDays", {
+                valueAsNumber: true,
+                min: { value: 0, message: "Credit days cannot be negative." },
+                max: { value: 365, message: "Credit days cannot exceed 365." },
+                validate: (value) => Number.isInteger(value) || "Enter a whole number of days.",
+              })}
             />
 
             <div className="sm:col-span-2">
@@ -178,12 +210,13 @@ export function CustomerFormPage() {
               <Input
                 label="Street Address / Line 1"
                 placeholder="Plot 12, Industrial Area Phase II"
-                {...register("billingAddress.line1")}
+                error={errors.billingAddress?.line1?.message}
+                {...register("billingAddress.line1", { maxLength: { value: 200, message: "Street address must be 200 characters or fewer." } })}
               />
             </div>
-            <Input label="City" placeholder="Mumbai" {...register("billingAddress.city")} />
-            <Input label="State" placeholder="Maharashtra" {...register("billingAddress.state")} />
-            <Input label="PIN Code" placeholder="400001" {...register("billingAddress.postalCode")} />
+            <Input label="City" placeholder="Mumbai" error={errors.billingAddress?.city?.message} {...register("billingAddress.city", { maxLength: { value: 100, message: "City must be 100 characters or fewer." } })} />
+            <Input label="State" placeholder="Maharashtra" error={errors.billingAddress?.state?.message} {...register("billingAddress.state", { maxLength: { value: 100, message: "State must be 100 characters or fewer." } })} />
+            <Input label="PIN Code" placeholder="400001" error={errors.billingAddress?.postalCode?.message} {...register("billingAddress.postalCode", { maxLength: { value: 20, message: "PIN code must be 20 characters or fewer." } })} />
           </div>
         </Card>
 
@@ -216,22 +249,36 @@ export function CustomerFormPage() {
                 >
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-1 w-full">
                     <Input
+                      label="Contact name"
                       placeholder="Name"
                       required
-                      {...register(`contacts.${idx}.name` as const, { required: true })}
+                      error={(errors.contacts?.[idx] as any)?.name?.message}
+                      {...register(`contacts.${idx}.name` as const, {
+                        required: "Contact name is required.",
+                        validate: (value) => Boolean(value?.trim()) || "Contact name is required.",
+                        maxLength: { value: 120, message: "Contact name must be 120 characters or fewer." },
+                      })}
                     />
                     <Input
+                      label="Designation"
                       placeholder="Designation"
-                      {...register(`contacts.${idx}.designation` as const)}
+                      error={(errors.contacts?.[idx] as any)?.designation?.message}
+                      {...register(`contacts.${idx}.designation` as const, { maxLength: { value: 100, message: "Designation must be 100 characters or fewer." } })}
                     />
                     <Input
+                      label="Phone"
                       placeholder="Phone"
-                      {...register(`contacts.${idx}.phone` as const)}
+                      error={(errors.contacts?.[idx] as any)?.phone?.message}
+                      {...register(`contacts.${idx}.phone` as const, { maxLength: { value: 20, message: "Phone number must be 20 characters or fewer." } })}
                     />
                     <Input
+                      label="Email"
                       placeholder="Email"
                       type="email"
-                      {...register(`contacts.${idx}.email` as const)}
+                      error={(errors.contacts?.[idx] as any)?.email?.message}
+                      {...register(`contacts.${idx}.email` as const, {
+                        validate: (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()) || "Enter a valid email address.",
+                      })}
                     />
                   </div>
                   <button
@@ -249,9 +296,11 @@ export function CustomerFormPage() {
 
         {/* Notes */}
         <Card title="Notes & Remarks">
-          <TextArea
+        <TextArea
             placeholder="Special billing instructions, payment preferences, or terms history..."
-            {...register("notes")}
+          label="Notes"
+          error={errors.notes?.message}
+          {...register("notes", { maxLength: { value: 2000, message: "Notes must be 2,000 characters or fewer." } })}
           />
         </Card>
 

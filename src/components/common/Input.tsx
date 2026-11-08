@@ -27,6 +27,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             type={isPassword && showPassword ? "text" : type}
+            aria-invalid={error ? "true" : undefined}
+            aria-describedby={error ? `${inputId}-error` : undefined}
             className={clsx(
               "w-full rounded-lg border px-3 py-2 text-sm shadow-sm transition-colors focus:outline-none focus:ring-1",
               isPassword && "pr-10",
@@ -43,7 +45,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             </button>
           )}
         </div>
-        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+        {error && <p id={`${inputId}-error`} className="mt-1 text-xs text-red-600">{error}</p>}
         {helperText && !error && <p className="mt-1 text-xs text-slate-600">{helperText}</p>}
       </div>
     );
