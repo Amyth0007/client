@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link, useNavigate } from "react-router";
+import { useParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import {
@@ -249,19 +249,25 @@ export function RecoveryDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card title="Assigned Overdue Invoices">
           <div className="space-y-2">
-            {assignment.invoices.map((inv: any) => (
-              <div
+            {assignment.invoices.map((inv: any) => {
+              const canOpenInvoice = user?.role !== "field_recovery";
+              const openInvoice = () => navigate(`/invoices/${inv.id}`);
+              return <div
                 key={inv.id}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-slate-100 bg-slate-50/60 text-xs"
+                role={canOpenInvoice ? "link" : undefined}
+                tabIndex={canOpenInvoice ? 0 : undefined}
+                aria-label={canOpenInvoice ? `Open invoice ${inv.invoiceNumber}` : undefined}
+                onClick={canOpenInvoice ? openInvoice : undefined}
+                onKeyDown={canOpenInvoice ? (event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openInvoice();
+                  }
+                } : undefined}
+                className={`flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 text-xs transition-colors ${canOpenInvoice ? "group cursor-pointer hover:bg-indigo-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-600" : ""}`}
               >
                 <div>
-                  {user?.role === "field_recovery" ? (
-                    <span className="font-bold text-slate-700">{inv.invoiceNumber}</span>
-                  ) : (
-                    <Link to={`/invoices/${inv.id}`} className="font-bold text-indigo-600 hover:underline">
-                      {inv.invoiceNumber}
-                    </Link>
-                  )}
+                  <span className={canOpenInvoice ? "font-bold text-indigo-700 underline decoration-indigo-300 underline-offset-2" : "font-bold text-slate-700"}>{inv.invoiceNumber}</span>
                   <p className="text-slate-500 mt-0.5">Due Date: {inv.dueDate}</p>
                 </div>
                 <div className="text-right">
@@ -272,8 +278,8 @@ export function RecoveryDetailPage() {
                     Total: {formatMoney(inv.amountMinor)}
                   </span>
                 </div>
-              </div>
-            ))}
+              </div>;
+            })}
           </div>
         </Card>
 

@@ -263,11 +263,22 @@ export function CustomerDetailPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {invoices.map((inv: any) => (
-                  <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                  <tr
+                    key={inv.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open invoice ${inv.invoiceNumber}`}
+                    onClick={() => navigate(`/invoices/${inv.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        navigate(`/invoices/${inv.id}`);
+                      }
+                    }}
+                    className="group cursor-pointer transition-colors hover:bg-indigo-50/70 focus-visible:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-600"
+                  >
                     <td className="py-2.5 font-medium">
-                      <Link to={`/invoices/${inv.id}`} className="text-indigo-600 hover:underline">
-                        {inv.invoiceNumber}
-                      </Link>
+                      <span className="font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-2">{inv.invoiceNumber}</span>
                     </td>
                     <td className="py-2.5 text-slate-600">{inv.dueDate}</td>
                     <td className="py-2.5 text-right font-medium text-slate-700">
@@ -316,11 +327,22 @@ export function CustomerDetailPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {payments.map((p: any) => (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                  <tr
+                    key={p.id}
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open payment ${p.paymentReference}`}
+                    onClick={() => navigate(`/payments/${p.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        navigate(`/payments/${p.id}`);
+                      }
+                    }}
+                    className="group cursor-pointer transition-colors hover:bg-indigo-50/70 focus-visible:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-600"
+                  >
                     <td className="py-2.5 font-medium">
-                      <Link to={`/payments/${p.id}`} className="text-indigo-600 hover:underline">
-                        {p.paymentReference}
-                      </Link>
+                      <span className="font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-2">{p.paymentReference}</span>
                     </td>
                     <td className="py-2.5 text-slate-600">{p.paymentDate}</td>
                     <td className="py-2.5 uppercase text-slate-600">{p.mode.replace("_", " ")}</td>

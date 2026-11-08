@@ -147,14 +147,22 @@ export function PaymentDetailPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(payment.allocations ?? []).map((alloc: any, idx: number) => (
-                <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                <tr
+                  key={idx}
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`Open invoice ${alloc.invoiceNumber || alloc.invoiceId}`}
+                  onClick={() => navigate(`/invoices/${alloc.invoiceId}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/invoices/${alloc.invoiceId}`);
+                    }
+                  }}
+                  className="group cursor-pointer transition-colors hover:bg-indigo-50/70 focus-visible:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-600"
+                >
                   <td className="py-2.5 font-medium">
-                    <Link
-                      to={`/invoices/${alloc.invoiceId}`}
-                      className="text-indigo-600 hover:underline"
-                    >
-                      {alloc.invoiceNumber || alloc.invoiceId}
-                    </Link>
+                    <span className="font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-2">{alloc.invoiceNumber || alloc.invoiceId}</span>
                   </td>
                   <td className="py-2.5 capitalize text-slate-600">{alloc.bucket}</td>
                   <td className="py-2.5 text-right font-bold text-slate-900">

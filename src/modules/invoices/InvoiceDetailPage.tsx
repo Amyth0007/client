@@ -10,6 +10,7 @@ import {
   Download,
   CheckCircle,
   Mail,
+  ArrowUpRight,
 } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
@@ -165,7 +166,7 @@ export function InvoiceDetailPage() {
   const mailtoParams = emailDraft ? new URLSearchParams({ subject: emailDraft.subject, body: emailDraft.body }) : null;
   const invoiceFlow = [
     { id: `created-${invoice.id}`, date: invoice.createdAt, title: "Invoice created", detail: "Draft entered in the system", amount: null },
-    ...ledger.map((entry: any) => ({ id: `ledger-${entry.id}`, date: entry.effectiveDate, title: entry.type.replace(/_/g, " "), detail: entry.payment?.reference ? `Payment ${entry.payment.reference}` : `Recorded by ${entry.recordedBy?.name || "System"}`, amount: entry.amountMinor })),
+    ...ledger.map((entry: any) => ({ id: `ledger-${entry.id}`, date: entry.effectiveDate, title: entry.type.replace(/_/g, " "), detail: entry.payment?.reference ? `Payment ${entry.payment.reference}` : `Recorded by ${entry.recordedBy?.name || "System"}`, amount: entry.amountMinor, paymentId: entry.payment?.id })),
     ...ackHistory.map((item: any) => ({ id: `ack-${item.id}`, date: item.eventAt, title: `Customer ${item.status.replace(/_/g, " ")}`, detail: item.responsiblePersonName ? `Confirmed by ${item.responsiblePersonName}` : (item.remarks || "Acknowledgement updated"), amount: null })),
   ].sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -308,14 +309,22 @@ export function InvoiceDetailPage() {
 
       <Card title="Invoice activity" subtitle="A single view of invoice creation, customer responses, and balance changes">
         {invoiceFlow.length === 0 ? <p className="py-3 text-xs text-slate-600">No activity recorded yet.</p> : <ol className="space-y-3">
-          {invoiceFlow.map((event: any) => <li key={event.id} className="flex gap-3 border-l-2 border-indigo-100 pl-4">
-            <span className="-ml-[21px] mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-indigo-500 ring-4 ring-white" />
-            <div className="min-w-0 flex-1 pb-1">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"><p className="text-sm font-semibold capitalize text-slate-900">{event.title}</p><time className="text-xs text-slate-500">{new Date(event.date).toLocaleString()}</time></div>
-              <p className="mt-0.5 text-xs text-slate-600">{event.detail}</p>
-            </div>
-            {event.amount != null && <span className={`text-sm font-semibold ${event.amount < 0 ? "text-emerald-700" : "text-slate-800"}`}>{event.amount > 0 ? "+" : ""}{formatMoney(event.amount)}</span>}
-          </li>)}
+          {invoiceFlow.map((event: any) => {
+            const content = <>
+              <span className="-ml-[21px] mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-indigo-500 ring-4 ring-white" />
+              <div className="min-w-0 flex-1 pb-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"><p className="text-sm font-semibold capitalize text-slate-900">{event.title}</p><time className="text-xs text-slate-500">{new Date(event.date).toLocaleString()}</time></div>
+                <p className="mt-0.5 text-xs text-slate-600">{event.detail}</p>
+              </div>
+              {event.amount != null && <span className={`shrink-0 text-sm font-semibold ${event.amount < 0 ? "text-emerald-700" : "text-slate-800"}`}>{event.amount > 0 ? "+" : ""}{formatMoney(event.amount)}</span>}
+            </>;
+
+            return <li key={event.id} className={`border-l-2 border-indigo-100 pl-4 ${event.paymentId ? "group" : ""}`}>
+              {event.paymentId
+                ? <Link to={`/payments/${event.paymentId}`} aria-label={`Open payment ${event.detail.replace(/^Payment /, "")}`} className="flex min-w-0 items-start gap-3 rounded-md py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 group-hover:text-indigo-900">{content}</Link>
+                : <div className="flex min-w-0 items-start gap-3 py-1">{content}</div>}
+            </li>;
+          })}
         </ol>}
       </Card>
 
@@ -329,8 +338,8 @@ export function InvoiceDetailPage() {
             No ledger entries posted yet. (Available once invoice is issued).
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="-mx-5 overflow-x-auto overscroll-x-contain px-5 sm:mx-0 sm:px-0">
+            <table className="min-w-[640px] w-full text-left text-[11px] sm:min-w-full sm:text-xs">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-500 uppercase font-semibold">
                   <th className="pb-2.5">Date</th>
@@ -341,14 +350,29 @@ export function InvoiceDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {ledger.map((entry: any) => (
-                  <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
+                {ledger.map((entry: any) => {
+                  const paymentId = entry.payment?.id as string | undefined;
+                  const paymentLabel = entry.payment?.reference || "payment";
+                  return <tr
+                    key={entry.id}
+                    role={paymentId ? "link" : undefined}
+                    tabIndex={paymentId ? 0 : undefined}
+                    aria-label={paymentId ? `Open payment ${paymentLabel}` : undefined}
+                    onClick={paymentId ? () => navigate(`/payments/${paymentId}`) : undefined}
+                    onKeyDown={paymentId ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        navigate(`/payments/${paymentId}`);
+                      }
+                    } : undefined}
+                    className={`transition-colors ${paymentId ? "group cursor-pointer hover:bg-indigo-50/70 focus-visible:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-600" : "hover:bg-slate-50"}`}
+                  >
                     <td className="py-2.5 text-slate-600">{entry.effectiveDate}</td>
                     <td className="py-2.5 font-medium uppercase text-slate-700">
                       {entry.type.replace("_", " ")}
                     </td>
                     <td className="py-2.5 text-slate-600">
-                      {entry.payment?.reference || "—"}
+                      {paymentId ? <span className="inline-flex items-center gap-1 font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-2">{paymentLabel}<ArrowUpRight className="h-3.5 w-3.5 shrink-0" /></span> : "—"}
                     </td>
                     <td
                       className={`py-2.5 text-right font-bold ${
@@ -360,7 +384,7 @@ export function InvoiceDetailPage() {
                     </td>
                     <td className="py-2.5 text-slate-500">{entry.recordedBy?.name || "System"}</td>
                   </tr>
-                ))}
+                })}
               </tbody>
             </table>
           </div>
