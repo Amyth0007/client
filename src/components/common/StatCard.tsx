@@ -29,20 +29,20 @@ export function StatCard({
     neutral: "text-slate-600 bg-slate-100 border-slate-200",
   }[variant];
 
-  const content = <div className="flex h-full flex-col justify-between">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">{title}</p>
-        <div className={clsx("rounded-xl border p-2.5", iconColor)}>
-          <Icon className="h-5 w-5" strokeWidth={2.5} />
+  const content = <div className="flex h-full min-w-0 flex-col justify-between gap-3">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <p className="min-w-0 flex-1 break-words pt-1 text-[0.68rem] font-bold uppercase leading-4 tracking-wide text-slate-700 sm:text-xs sm:tracking-wider">{title}</p>
+        <div className={clsx("grid h-9 w-9 shrink-0 place-items-center rounded-lg border sm:h-10 sm:w-10 sm:rounded-xl", iconColor)}>
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2.5} />
         </div>
       </div>
-      <div className="mt-3">
-        <p className="text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{value}</p>
-        {subtitle && <p className="mt-1 text-xs font-medium text-slate-700">{subtitle}</p>}
+      <div className="min-w-0">
+        <p className="break-words text-lg font-bold leading-tight tracking-tight text-slate-950 sm:text-2xl">{value}</p>
+        {subtitle && <p className="mt-1 break-words text-xs font-medium leading-4 text-slate-700">{subtitle}</p>}
       </div>
     </div>;
   const cardClass = clsx(
-    "block min-h-28 rounded-2xl border border-slate-300 bg-white p-4 shadow-xs transition-all sm:min-h-32 sm:p-5",
+    "block min-h-28 min-w-0 overflow-hidden rounded-2xl border border-slate-300 bg-white p-3 shadow-xs transition-all sm:min-h-32 sm:p-5",
     to && "hover:border-indigo-400 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600",
     className,
   );

@@ -3,9 +3,9 @@ import { SlidersHorizontal } from "lucide-react";
 import { Modal } from "./Modal.js";
 
 export function FilterButton({ count, onClick }: { count: number; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="relative inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50" aria-label="Open filters">
-    <SlidersHorizontal className="h-3.5 w-3.5" /><span>Filters</span>
-    {count > 0 && <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-indigo-600 px-1 text-[11px] font-bold text-white">{count}</span>}
+  return <button type="button" onClick={onClick} className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 sm:w-auto sm:px-2.5 sm:text-xs sm:font-medium" aria-label={count ? `Open filters, ${count} active` : "Open filters"}>
+    <SlidersHorizontal className="h-4 w-4 shrink-0" /><span className="sr-only sm:not-sr-only">Filters</span>
+    {count > 0 && <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-700 px-1 text-[10px] font-bold leading-none text-white sm:static sm:h-5 sm:min-w-5 sm:text-[11px]">{count}</span>}
   </button>;
 }
 

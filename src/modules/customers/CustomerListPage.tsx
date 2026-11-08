@@ -44,7 +44,7 @@ export function CustomerListPage() {
       {/* Filter / Search Bar */}
       <Card contentClassName="p-2!">
         <div className="flex items-center gap-2">
-          <div className="relative min-w-60 flex-1">
+          <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <input
             type="text"
@@ -98,46 +98,43 @@ export function CustomerListPage() {
             <Link
               key={c.id}
               to={`/customers/${c.id}`}
-              className="block rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-indigo-300 hover:shadow-xs transition-all"
+              className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
             >
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-slate-900 text-sm">{c.displayName}</h3>
+              <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h3 className="min-w-0 break-words text-sm font-bold text-slate-950">{c.displayName}</h3>
                     <Badge variant={c.status === "active" ? "success" : "neutral"}>
                       {c.status}
                     </Badge>
                   </div>
                   {c.companyName && (
-                    <p className="text-xs text-slate-600 mt-0.5">{c.companyName}</p>
+                    <p className="mt-0.5 break-words text-xs font-medium text-slate-700">{c.companyName}</p>
                   )}
-                  <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-500">
+                  <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 text-xs text-slate-700 sm:grid-cols-2">
                     {c.phone && (
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {c.phone}
+                      <span className="flex min-w-0 items-start gap-2">
+                        <Phone className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
+                        <span className="break-all">{c.phone}</span>
                       </span>
                     )}
                     {c.email && (
-                      <span className="flex items-center gap-1">
-                        <Mail className="h-3 w-3" />
-                        {c.email}
+                      <span className="flex min-w-0 items-start gap-2">
+                        <Mail className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" />
+                        <span className="break-all">{c.email}</span>
                       </span>
                     )}
-                    {c.gstin && <span>GSTIN: {c.gstin}</span>}
+                    {c.gstin && <span className="min-w-0 break-all font-medium text-slate-600 sm:col-span-2">GSTIN: {c.gstin}</span>}
                   </div>
-                </div>
 
-                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 text-right">
-                  <span className="text-xs text-slate-500">Credit Term</span>
-                  <span className="text-xs font-semibold text-slate-700">
-                    {c.defaultCreditDays} Days
-                  </span>
-                  {c.creditLimitMinor && (
-                    <span className="text-xs text-slate-500">
-                      Limit: {formatMoney(c.creditLimitMinor)}
-                    </span>
-                  )}
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Credit term</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">{c.defaultCreditDays} days</p>
+                  </div>
+                  {c.creditLimitMinor != null && <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Credit limit</p>
+                    <p className="mt-1 break-words text-sm font-bold text-slate-900">{formatMoney(c.creditLimitMinor)}</p>
+                  </div>}
                 </div>
               </div>
             </Link>

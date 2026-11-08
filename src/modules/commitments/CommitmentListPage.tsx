@@ -98,12 +98,11 @@ export function CommitmentListPage() {
               <Link
                 key={c.id}
                 to={`/commitments/${c.id}`}
-                className="block rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-indigo-300 hover:shadow-xs transition-all"
+                className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">
+                <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="min-w-0 break-words text-sm font-bold text-slate-950">
                         {c.customer?.displayName || "Customer"}
                       </span>
                       <Badge
@@ -129,34 +128,13 @@ export function CommitmentListPage() {
                       </span>
                     </p>
 
-                    <div className="flex flex-wrap gap-4 mt-1.5 text-xs text-slate-500">
-                      <span
-                        className={
-                          isLate
-                            ? "text-rose-600 font-semibold"
-                            : isDueSoon
-                            ? "text-indigo-600 font-medium"
-                            : ""
-                        }
-                      >
-                        Promised Date: {c.promisedDate}
-                      </span>
-                      <span>{c.invoices?.length ?? 0} invoice(s)</span>
-                      {c.delayReason && <span>Reason: {c.delayReason}</span>}
+                    <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
+                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Promise date</p><p className={`mt-1 break-words text-sm font-semibold ${isLate ? "text-rose-700" : isDueSoon ? "text-indigo-700" : "text-slate-900"}`}>{c.promisedDate}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Promised amount</p><p className="mt-1 break-words text-sm font-bold text-indigo-800">{formatMoney(c.promisedAmountMinor)}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoices</p><p className="mt-1 text-sm font-semibold text-slate-900">{c.invoices?.length ?? 0}</p></div>
+                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Fulfilled</p><p className="mt-1 break-words text-sm font-semibold text-emerald-800">{formatMoney(c.fulfilledAmountMinor)}</p></div>
+                      {c.delayReason && <div className="min-w-0 sm:col-span-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Delay reason</p><p className="mt-1 break-words text-sm font-medium text-slate-800">{c.delayReason}</p></div>}
                     </div>
-                  </div>
-
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 text-right">
-                    <span className="text-xs text-slate-500">Promised Amount</span>
-                    <span className="text-base font-bold text-indigo-600">
-                      {formatMoney(c.promisedAmountMinor)}
-                    </span>
-                    {c.fulfilledAmountMinor > 0 && (
-                      <span className="text-xs text-emerald-600 font-medium">
-                        Fulfilled: {formatMoney(c.fulfilledAmountMinor)}
-                      </span>
-                    )}
-                  </div>
                 </div>
               </Link>
             );

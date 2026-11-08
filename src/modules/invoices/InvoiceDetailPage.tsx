@@ -262,19 +262,19 @@ export function InvoiceDetailPage() {
       </div>
 
       {/* Financial Details Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5">
           <p className="text-xs font-medium text-slate-500 uppercase">Invoice Principal</p>
-          <p className="text-2xl font-bold text-slate-900 mt-2">
+          <p className="mt-2 break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
             {formatMoney(invoice.amountMinor)}
           </p>
           <p className="text-xs text-slate-600 mt-1">Invoice Date: {invoice.invoiceDate}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5">
           <p className="text-xs font-medium text-slate-500 uppercase">Live Outstanding</p>
           <p
-            className={`text-2xl font-bold mt-2 ${
+            className={`mt-2 break-words text-xl font-bold leading-tight sm:text-2xl ${
               invoice.outstandingMinor === 0 ? "text-emerald-600" : "text-indigo-600"
             }`}
           >
@@ -285,9 +285,9 @@ export function InvoiceDetailPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5">
           <p className="text-xs font-medium text-slate-500 uppercase">Due Date Status</p>
-          <p className="text-2xl font-bold text-slate-900 mt-2">{invoice.dueDate}</p>
+          <p className="mt-2 break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">{invoice.dueDate}</p>
           <p className={`text-xs mt-1 ${isOverdue ? "text-rose-600 font-semibold" : "text-slate-600"}`}>
             {isOverdue ? "Payment Overdue" : "On schedule"}
           </p>

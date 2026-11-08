@@ -167,12 +167,11 @@ export function InvoiceListPage() {
               <Link
                 key={inv.id}
                 to={`/invoices/${inv.id}`}
-                className="block rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-indigo-300 hover:shadow-xs transition-all"
+                className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
               >
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="min-w-0 break-words text-sm font-bold text-slate-950">
                         {inv.invoiceNumber}
                       </span>
                       <Badge variant={inv.documentStatus}>{inv.documentStatus}</Badge>
@@ -182,36 +181,31 @@ export function InvoiceListPage() {
                           {inv.acknowledgementStatus.replace("_", " ")}
                         </Badge>
                       )}
-                    </div>
-
-                    <p className="text-xs font-medium text-slate-700 mt-1">
-                      {inv.customer?.displayName || "Unknown Customer"}
-                    </p>
-
-                    <div className="flex flex-wrap gap-4 mt-1.5 text-xs text-slate-500">
-                      <span>Invoice Date: {inv.invoiceDate}</span>
-                      <span className={isOverdue ? "text-rose-600 font-medium" : ""}>
-                        Due: {inv.dueDate}
-                      </span>
-                    </div>
                   </div>
 
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 text-right">
-                    <span className="text-xs text-slate-500">
-                      Amount: {formatMoney(inv.amountMinor)}
-                    </span>
-                    <span
-                      className={`text-base font-bold ${
-                        inv.outstandingMinor > 0 ? "text-slate-900" : "text-emerald-600"
-                      }`}
-                    >
-                      {inv.outstandingMinor === 0 ? "PAID" : formatMoney(inv.outstandingMinor)}
-                    </span>
-                    {inv.outstandingMinor > 0 && inv.outstandingMinor < inv.amountMinor && (
-                      <span className="text-xs text-amber-600 font-semibold">
-                        Partial Balance
-                      </span>
-                    )}
+                    <p className="mt-2 break-words text-sm font-semibold text-slate-800">
+                      {inv.customer?.displayName || "Unknown Customer"}
+                    </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice date</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{inv.invoiceDate}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Due date</p>
+                      <p className={`mt-1 break-words text-sm font-semibold ${isOverdue ? "text-rose-700" : "text-slate-900"}`}>{inv.dueDate}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice total</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{formatMoney(inv.amountMinor)}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Balance due</p>
+                      <p className={`mt-1 break-words text-sm font-bold ${inv.outstandingMinor > 0 ? "text-slate-950" : "text-emerald-700"}`}>
+                        {inv.outstandingMinor === 0 ? "Paid" : formatMoney(inv.outstandingMinor)}
+                      </p>
+                      {inv.outstandingMinor > 0 && inv.outstandingMinor < inv.amountMinor && <p className="mt-0.5 text-[11px] font-semibold text-amber-700">Partially paid</p>}
+                    </div>
                   </div>
                 </div>
               </Link>

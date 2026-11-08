@@ -89,12 +89,11 @@ export function PaymentListPage() {
             <Link
               key={p.id}
               to={`/payments/${p.id}`}
-              className="block rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-indigo-300 hover:shadow-xs transition-all"
+              className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
             >
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900 text-sm">
+              <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="min-w-0 break-words text-sm font-bold text-slate-950">
                       {p.paymentReference}
                     </span>
                     <Badge variant={p.kind === "collection" ? "success" : "danger"}>
@@ -103,30 +102,16 @@ export function PaymentListPage() {
                     {p.reversedAt && <Badge variant="warning">Reversed</Badge>}
                   </div>
 
-                  <p className="text-xs font-medium text-slate-700 mt-1">
+                  <p className="mt-2 break-words text-sm font-semibold text-slate-800">
                     {p.customer?.displayName || "Customer"}
                   </p>
-
-                  <div className="flex flex-wrap gap-4 mt-1.5 text-xs text-slate-500">
-                    <span>Date: {p.paymentDate}</span>
-                    <span className="capitalize">Mode: {p.mode.replace("_", " ")}</span>
-                    {p.transactionReference && <span>Txn: {p.transactionReference}</span>}
+                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Payment date</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{p.paymentDate}</p></div>
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Method</p><p className="mt-1 break-words text-sm font-semibold capitalize text-slate-900">{p.mode.replace("_", " ")}</p></div>
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</p><p className={`mt-1 break-words text-sm font-bold ${p.kind === "collection" ? "text-emerald-700" : "text-rose-700"}`}>{p.kind === "collection" ? "+" : "-"}{formatMoney(p.amountMinor)}</p></div>
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoices allocated</p><p className="mt-1 text-sm font-semibold text-slate-900">{p.allocations?.length ?? 0}</p></div>
+                    {p.transactionReference && <div className="min-w-0 sm:col-span-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Transaction reference</p><p className="mt-1 break-all text-sm font-medium text-slate-800">{p.transactionReference}</p></div>}
                   </div>
-                </div>
-
-                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 text-right">
-                  <span
-                    className={`text-base font-bold ${
-                      p.kind === "collection" ? "text-emerald-600" : "text-rose-600"
-                    }`}
-                  >
-                    {p.kind === "collection" ? "+" : "-"}
-                    {formatMoney(p.amountMinor)}
-                  </span>
-                  <span className="text-xs text-slate-500 mt-0.5">
-                    {p.allocations?.length ?? 0} invoice(s) allocated
-                  </span>
-                </div>
               </div>
             </Link>
           ))}

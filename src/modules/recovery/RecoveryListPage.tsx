@@ -112,12 +112,11 @@ export function RecoveryListPage() {
             <Link
               key={item.id}
               to={`/recovery/${item.id}`}
-              className="block rounded-xl border border-slate-200/90 bg-white p-4 shadow-2xs hover:border-indigo-300 hover:shadow-xs transition-all"
+              className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
             >
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900 text-sm">
+              <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="min-w-0 break-words text-sm font-bold text-slate-950">
                       {item.customer?.displayName || "Customer"}
                     </span>
                     <Badge variant={item.priority === "high" ? "danger" : "neutral"}>
@@ -133,21 +132,12 @@ export function RecoveryListPage() {
                     </span>
                   </p>
 
-                  <div className="flex flex-wrap gap-4 mt-1.5 text-xs text-slate-500">
-                    <span>Assigned: {item.assignedOn}</span>
-                    <span className="text-rose-600 font-medium">
-                      Deadline: {item.visitDeadline}
-                    </span>
-                    <span>{item.invoices?.length ?? 0} invoice(s)</span>
+                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Assigned</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{item.assignedOn}</p></div>
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Visit deadline</p><p className="mt-1 break-words text-sm font-semibold text-rose-700">{item.visitDeadline}</p></div>
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoices</p><p className="mt-1 text-sm font-semibold text-slate-900">{item.invoices?.length ?? 0}</p></div>
+                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Target balance</p><p className="mt-1 break-words text-sm font-bold text-slate-950">{formatMoney(item.outstandingSnapshotMinor)}</p></div>
                   </div>
-                </div>
-
-                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 text-right">
-                  <span className="text-xs text-slate-500">Target Balance</span>
-                  <span className="text-base font-bold text-slate-900">
-                    {formatMoney(item.outstandingSnapshotMinor)}
-                  </span>
-                </div>
               </div>
             </Link>
           ))}

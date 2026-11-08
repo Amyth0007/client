@@ -103,18 +103,18 @@ export function PaymentDetailPage() {
       </div>
 
       {/* Financial Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5">
           <p className="text-xs font-medium text-slate-500 uppercase">Received Amount</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-2">
+          <p className="mt-2 break-words text-xl font-bold leading-tight text-emerald-700 sm:text-2xl">
             {formatMoney(payment.amountMinor)}
           </p>
           <p className="text-xs text-slate-600 mt-1">Date: {payment.paymentDate}</p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5">
           <p className="text-xs font-medium text-slate-500 uppercase">Payment Method</p>
-          <p className="text-xl font-bold capitalize text-slate-900 mt-2">
+          <p className="mt-2 break-words text-lg font-bold capitalize leading-tight text-slate-900 sm:text-xl">
             {payment.mode.replace("_", " ")}
           </p>
           <p className="text-xs text-slate-600 mt-1">
@@ -122,9 +122,9 @@ export function PaymentDetailPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5">
           <p className="text-xs font-medium text-slate-500 uppercase">Allocations</p>
-          <p className="text-2xl font-bold text-slate-900 mt-2">
+          <p className="mt-2 break-words text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
             {payment.allocations?.length ?? 0}
           </p>
           <p className="text-xs text-slate-600 mt-1">Invoices cleared</p>
