@@ -13,6 +13,11 @@ export class ApiError extends Error {
 }
 
 let inMemoryToken: string | null = null;
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+
+function apiUrl(path: string): string {
+  return `${apiBaseUrl}/api/v1${path}`;
+}
 
 export function setAccessToken(token: string | null) {
   inMemoryToken = token;
@@ -64,7 +69,7 @@ async function request<T>(
     headers.set("Authorization", `Bearer ${inMemoryToken}`);
   }
 
-  const res = await fetch(`/api/v1${path}`, {
+  const res = await fetch(apiUrl(path), {
     ...options,
     headers,
     credentials: "include", // send cookies for refresh token
@@ -73,7 +78,7 @@ async function request<T>(
   // Handle 401 and try refresh once
   if (res.status === 401 && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
     try {
-      const refreshRes = await fetch("/api/v1/auth/refresh", {
+      const refreshRes = await fetch(apiUrl("/auth/refresh"), {
         method: "POST",
         credentials: "include",
       });
@@ -388,7 +393,7 @@ export const api = {
       headers.set("Authorization", `Bearer ${inMemoryToken}`);
     }
 
-    const res = await fetch("/api/v1/files/upload", {
+    const res = await fetch(apiUrl("/files/upload"), {
       method: "POST",
       headers,
       credentials: "include",
@@ -406,13 +411,13 @@ export const api = {
     return body.data;
   },
   getFileBlob: async (fileId: string): Promise<Blob> => {
-    const fetchBlob = (token: string | null) => fetch(`/api/v1/files/${fileId}/download?inline=true`, {
+    const fetchBlob = (token: string | null) => fetch(apiUrl(`/files/${fileId}/download?inline=true`), {
       credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     let response = await fetchBlob(inMemoryToken);
     if (response.status === 401) {
-      const refreshed = await fetch("/api/v1/auth/refresh", { method: "POST", credentials: "include" });
+      const refreshed = await fetch(apiUrl("/auth/refresh"), { method: "POST", credentials: "include" });
       if (refreshed.ok) {
         const payload = await refreshed.json();
         setAccessToken(payload.data.accessToken);
