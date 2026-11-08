@@ -45,7 +45,7 @@ export function AppRoutes() {
           <Route path="/dashboard" element={<DefaultDashboard />} />
           <Route element={<ProtectedRoute allowedRoles={["super_admin"]} />}>
             <Route path="/platform" element={<PlatformAdminPage />} />
-          </Route>
+          </Route>  
 
           {/* Customers */}
           <Route path="/customers" element={<CustomerListPage />} />
