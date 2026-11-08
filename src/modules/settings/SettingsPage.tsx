@@ -1,0 +1,351 @@
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { toast } from "react-hot-toast";
+import { Plus } from "lucide-react";
+import { api } from "../../services/api-client.js";
+import { useAuth } from "../auth/AuthContext.js";
+import { PageHeader } from "../../components/common/PageHeader.js";
+import { Button } from "../../components/common/Button.js";
+import { Card } from "../../components/common/Card.js";
+import { Input } from "../../components/common/Input.js";
+import { Select } from "../../components/common/Select.js";
+import { Badge } from "../../components/common/Badge.js";
+import { Modal } from "../../components/common/Modal.js";
+
+export function SettingsPage() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
+  const [employeeToReset, setEmployeeToReset] = useState<any>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [isSavingOrg, setIsSavingOrg] = useState(false);
+  const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
+
+  const isOrgAdmin = user?.role === "org_admin" || user?.role === "super_admin";
+
+  // Load Organization
+  const { data: organization, isLoading: orgLoading } = useQuery({
+    queryKey: ["organization-settings"],
+    queryFn: () => api.getOrganization(),
+  });
+
+  // Load Employees
+  const { data: employeesData, isLoading: employeesLoading } = useQuery({
+    queryKey: ["employees-list"],
+    queryFn: () => (isOrgAdmin ? api.listEmployees({ limit: 50 }) : null),
+    enabled: isOrgAdmin,
+  });
+
+  // Org form
+  const { register: regOrg, handleSubmit: handleOrgSubmit } = useForm({
+    values: {
+      name: organization?.name ?? "",
+      legalName: organization?.legalName ?? "",
+      gstin: organization?.gstin ?? "",
+      timezone: organization?.timezone ?? "Asia/Kolkata",
+    },
+  });
+
+  // Employee form
+  const {
+    register: regEmp,
+    handleSubmit: handleEmpSubmit,
+    reset: resetEmpForm,
+    formState: { errors: empErrors },
+  } = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      role: "field_recovery",
+      temporaryPassword: "",
+    },
+  });
+
+  const onSaveOrg = async (values: any) => {
+    setIsSavingOrg(true);
+    try {
+      await api.updateOrganization(values);
+      toast.success("Organization profile updated!");
+      queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update organization");
+    } finally {
+      setIsSavingOrg(false);
+    }
+  };
+
+  const onAddEmployee = async (values: any) => {
+    setIsCreatingEmployee(true);
+    try {
+      await api.createEmployee(values);
+      toast.success("Employee created successfully!");
+      setEmployeeModalOpen(false);
+      resetEmpForm();
+      queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to create employee");
+    } finally {
+      setIsCreatingEmployee(false);
+    }
+  };
+
+  const handleToggleEmployeeStatus = async (emp: any) => {
+    const nextStatus = emp.status === "active" ? "disabled" : "active";
+    try {
+      await api.updateEmployee(emp.id, { status: nextStatus });
+      toast.success(`User marked ${nextStatus}`);
+      queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to change user status");
+    }
+  };
+
+  const handleChangeEmployeeRole = async (emp: any, role: string) => {
+    try {
+      await api.updateEmployee(emp.id, { role });
+      toast.success(`${emp.name}'s role updated`);
+      queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update employee role");
+    }
+  };
+
+  const handleResetEmployeePassword = async (emp: any) => {
+    setEmployeeToReset(emp);
+    setTemporaryPassword("");
+  };
+
+  const confirmResetEmployeePassword = async () => {
+    if (temporaryPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    if (!employeeToReset) return;
+    setIsResettingPassword(true);
+    try {
+      await api.updateEmployee(employeeToReset.id, { temporaryPassword });
+      toast.success("Staff password updated by admin");
+      setEmployeeToReset(null);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update password");
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const employees = employeesData?.data ?? [];
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <PageHeader
+        title="Settings & Workspace Administration"
+        description="Configure organization profile, recovery policies, and employee permissions"
+      />
+
+      {/* Organization Profile */}
+      <Card title="Organization Profile" subtitle="Commercial identity and tenant details">
+        {orgLoading ? (
+          <div className="h-32 bg-slate-50 animate-pulse rounded-xl" />
+        ) : (
+          <form onSubmit={handleOrgSubmit(onSaveOrg)} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Organization Display Name"
+                disabled={!isOrgAdmin}
+                {...regOrg("name")}
+              />
+
+              <Input
+                label="Legal Entity Name"
+                disabled={!isOrgAdmin}
+                {...regOrg("legalName")}
+              />
+
+              <Input
+                label="GSTIN"
+                disabled={!isOrgAdmin}
+                {...regOrg("gstin")}
+              />
+
+              <Select
+                label="Operational Timezone"
+                disabled={!isOrgAdmin}
+                options={[
+                  { value: "Asia/Kolkata", label: "Asia/Kolkata (IST +5:30)" },
+                  { value: "UTC", label: "UTC (+0:00)" },
+                  { value: "Asia/Dubai", label: "Asia/Dubai (+4:00)" },
+                  { value: "Asia/Singapore", label: "Asia/Singapore (+8:00)" },
+                ]}
+                {...regOrg("timezone")}
+              />
+            </div>
+
+            {isOrgAdmin && (
+              <div className="flex justify-end pt-2">
+                <Button type="submit" isLoading={isSavingOrg}>
+                  Save Profile Changes
+                </Button>
+              </div>
+            )}
+          </form>
+        )}
+      </Card>
+
+      {/* Employee Management Section (Only visible to Org Admins) */}
+      {isOrgAdmin && (
+        <Card
+          title="Team & Employee Access"
+          subtitle="Manage user roles, credentials, and field executive accounts"
+          action={
+            <Button size="sm" onClick={() => setEmployeeModalOpen(true)}>
+              <Plus className="h-4 w-4" />
+              <span>Add Employee</span>
+            </Button>
+          }
+        >
+          {employeesLoading ? (
+            <div className="h-32 bg-slate-50 animate-pulse rounded-xl" />
+          ) : employees.length === 0 ? (
+            <p className="text-xs text-slate-500 py-6 text-center">No team members found.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-100 text-slate-500 uppercase font-semibold">
+                    <th className="pb-3">Name & Email</th>
+                    <th className="pb-3">Role</th>
+                    <th className="pb-3 text-center">Status</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {employees.map((emp: any) => (
+                    <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3">
+                        <span className="font-semibold text-slate-900 block">{emp.name}</span>
+                        <span className="text-slate-500">{emp.email}</span>
+                      </td>
+                      <td className="py-3 text-slate-700">
+                        {emp.id === user?.id ? (
+                          emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : "Organization Admin"
+                        ) : (
+                          <select
+                            value={emp.role}
+                            onChange={(event) => void handleChangeEmployeeRole(emp, event.target.value)}
+                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs capitalize"
+                            aria-label={`Role for ${emp.name}`}
+                          >
+                            <option value="org_admin">Organization Admin</option>
+                            <option value="accounts_manager">Account Manager</option>
+                            <option value="field_recovery">Field Executive</option>
+                          </select>
+                        )}
+                      </td>
+                      <td className="py-3 text-center">
+                        <Badge variant={emp.status === "active" ? "success" : "neutral"}>
+                          {emp.status}
+                        </Badge>
+                      </td>
+                      <td className="py-3 text-right">
+                        {emp.id !== user?.id && (
+                          <>
+                          <button onClick={() => void handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>
+                          <button
+                            onClick={() => handleToggleEmployeeStatus(emp)}
+                            className={`text-xs font-medium hover:underline ${
+                              emp.status === "active"
+                                ? "text-rose-600 hover:text-rose-700"
+                                : "text-emerald-600 hover:text-emerald-700"
+                            }`}
+                          >
+                            {emp.status === "active" ? "Disable" : "Enable"}
+                          </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Add Employee Modal */}
+      <Modal
+        isOpen={employeeModalOpen}
+        onClose={() => setEmployeeModalOpen(false)}
+        title="Add New Employee"
+        description="Provision team member with temporary password and designated role"
+      >
+        <form onSubmit={handleEmpSubmit(onAddEmployee)} className="space-y-4">
+          <Input
+            label="Full Name"
+            required
+            placeholder="e.g. Anand Sharma"
+            error={empErrors.name?.message}
+            {...regEmp("name", { required: "Name is required" })}
+          />
+
+          <Input
+            label="Work Email"
+            type="email"
+            required
+            placeholder="anand@company.com"
+            error={empErrors.email?.message}
+            {...regEmp("email", { required: "Email is required" })}
+          />
+
+          <Select
+            label="Role & Permissions"
+            required
+            options={[
+              { value: "field_recovery", label: "Field Executive (Assigned Visits & Follow-up)" },
+              { value: "accounts_manager", label: "Account Manager (Invoices, Payments & Recovery)" },
+              { value: "org_admin", label: "Organization Admin (Full Control)" },
+            ]}
+            {...regEmp("role")}
+          />
+
+          <Input
+            label="Temporary Password"
+            type="password"
+            required
+            placeholder="At least 8 characters"
+            error={empErrors.temporaryPassword?.message}
+            {...regEmp("temporaryPassword", {
+              required: "Temporary password is required",
+              minLength: { value: 8, message: "Minimum 8 characters" },
+            })}
+          />
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEmployeeModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isCreatingEmployee}>
+              Create Employee
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={Boolean(employeeToReset)} onClose={() => setEmployeeToReset(null)} title="Set staff password" description={employeeToReset ? `Set a temporary password for ${employeeToReset.name}` : undefined}>
+        <div className="space-y-4">
+          <Input label="Temporary password" type="password" required minLength={8} autoComplete="new-password" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} helperText="At least 8 characters. The staff member can sign in with this password." />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setEmployeeToReset(null)} disabled={isResettingPassword}>Cancel</Button>
+            <Button isLoading={isResettingPassword} onClick={() => void confirmResetEmployeePassword()}>Save password</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
