@@ -143,11 +143,8 @@ export function SettingsPage() {
 
   const editEmployeePermissions = (employee: any) => {
     setPermissionsTarget(employee);
-    const legacyDefault = !employee.modulePermissionsConfigured;
     const modules = organization?.modules ?? user?.organization?.modules;
-    setPermissionDraft(legacyDefault
-      ? ORGANIZATION_MODULES.filter((module) => organizationModuleEnabled(modules, module.key)).map((module) => module.key)
-      : Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
+    setPermissionDraft(Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
   };
   const saveEmployeePermissions = async () => {
     if (!permissionsTarget) return;

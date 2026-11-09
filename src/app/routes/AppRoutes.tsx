@@ -36,17 +36,19 @@ function ModuleGate({ moduleKey }: { moduleKey: OrganizationModuleKey }) {
 
 function DefaultDashboard() {
   const { user } = useAuth();
+  const noScreens = <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold">No screens assigned</h1><p className="mt-2 text-sm text-slate-600">Ask your administrator to grant access to a screen.</p></div>;
   if (user?.role === "super_admin") return <Navigate to="/platform" replace />;
   if (user?.role === "field_recovery") {
     if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "recovery", user.modulePermissionsConfigured ?? false)) return <Navigate to="/recovery" replace />;
     if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "attendance", user.modulePermissionsConfigured ?? false)) return <Navigate to="/attendance" replace />;
-    return <ModuleGate moduleKey="recovery" />;
+    return noScreens;
   }
-  if (user?.role === "employee") {
-    const first = ["attendance", "recovery", "reports", "customers", "invoices", "payments", "commitments"] as const;
+  if (user?.role === "employee" || user?.role === "accounts_manager") {
+    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false)) return <DashboardPage />;
+    const first = ["attendance", "recovery", "customers", "invoices", "payments", "commitments", "settings"] as const;
     const module = first.find((key) => userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, key, user.modulePermissionsConfigured ?? false));
-    if (module) return <Navigate to={module === "reports" ? "/dashboard" : `/${module}`} replace />;
-    return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold">No screens assigned</h1><p className="mt-2 text-sm text-slate-600">Ask your administrator to grant access to a screen.</p></div>;
+    if (module) return <Navigate to={`/${module}`} replace />;
+    return noScreens;
   }
   if (user?.organizationId && !userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false)) return <ModuleGate moduleKey="reports" />;
   return <DashboardPage />;
@@ -57,7 +59,8 @@ export function AppRoutes() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/field-login" element={<LoginPage fieldOnly />} />
+      <Route path="/employee-login" element={<LoginPage employeeLogin />} />
+      <Route path="/field-login" element={<Navigate to="/employee-login" replace />} />
 
       {/* Authenticated routes */}
       <Route element={<ProtectedRoute />}>

@@ -24,11 +24,7 @@ export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (
-    user.role === "field_recovery" &&
-    (location.pathname === "/recovery/new" ||
-      !location.pathname.startsWith("/recovery"))
-  ) {
+  if (user.role === "field_recovery" && location.pathname === "/recovery/new") {
     return <Navigate to="/recovery" replace />;
   }
 

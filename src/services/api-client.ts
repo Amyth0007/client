@@ -28,13 +28,24 @@ export type AttendanceCorrection = { id: string; attendanceRecordId: string; emp
 export type AttendanceDashboard = { date: string; totalEmployees: number; presentToday: number; absentToday: number; lateArrivals: number; currentlyCheckedIn: number; exceptions: number; holiday: boolean };
 
 let inMemoryToken: string | null = null;
+let authSessionGeneration = 0;
 
 function apiUrl(path: string): string {
   return `/api/v1${path}`;
 }
 
+function notifySessionExpired() {
+  invalidateAuthSession();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("auth-session-expired"));
+}
+
 export function setAccessToken(token: string | null) {
   inMemoryToken = token;
+}
+
+export function invalidateAuthSession() {
+  authSessionGeneration += 1;
+  inMemoryToken = null;
 }
 
 export function getAccessToken(): string | null {
@@ -73,6 +84,7 @@ async function request<T>(
   options: RequestInit = {},
   isRetry = false,
 ): Promise<{ data: T; meta?: { page: number; limit: number; total: number } }> {
+  const requestGeneration = authSessionGeneration;
   const headers = new Headers(options.headers || {});
 
   if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
@@ -90,19 +102,21 @@ async function request<T>(
   });
 
   // Handle 401 and try refresh once
-  if (res.status === 401 && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
+  if (res.status === 401 && requestGeneration === authSessionGeneration && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
     try {
       const refreshRes = await fetch(apiUrl("/auth/refresh"), {
         method: "POST",
         credentials: "include",
       });
-      if (refreshRes.ok) {
+      if (refreshRes.ok && requestGeneration === authSessionGeneration) {
         const refreshData = await refreshRes.json();
         setAccessToken(refreshData.data.accessToken);
         return request<T>(path, options, true);
+      } else if (requestGeneration === authSessionGeneration) {
+        notifySessionExpired();
       }
     } catch {
-      setAccessToken(null);
+      if (requestGeneration === authSessionGeneration) notifySessionExpired();
     }
   }
 
@@ -128,21 +142,26 @@ async function request<T>(
 export const api = {
   // Auth
   login: async (credentials: { email: string; password: string }) => {
+    const requestGeneration = authSessionGeneration;
     const res = await request<{ accessToken: string; user: any }>("/auth/login", {
       method: "POST",
       body: JSON.stringify(credentials),
     });
+    if (requestGeneration !== authSessionGeneration) throw new ApiError("UNAUTHORIZED", "Sign-in was superseded by a session change", 401);
     setAccessToken(res.data.accessToken);
     return res.data;
   },
   refresh: async () => {
+    const requestGeneration = authSessionGeneration;
     const res = await request<{ accessToken: string; user: any }>("/auth/refresh", {
       method: "POST",
     });
+    if (requestGeneration !== authSessionGeneration) throw new ApiError("UNAUTHORIZED", "Session refresh was superseded by a session change", 401);
     setAccessToken(res.data.accessToken);
     return res.data;
   },
   logout: async () => {
+    invalidateAuthSession();
     try {
       await fetch(apiUrl("/auth/logout"), {
         method: "POST",
@@ -150,9 +169,7 @@ export const api = {
       });
     } catch {
       // Local sign-out must still complete when the network is unavailable.
-    } finally {
-      setAccessToken(null);
-    }
+    } finally { /* Local auth was invalidated before the network request. */ }
   },
   getMe: async () => {
     const res = await request<any>("/auth/me");

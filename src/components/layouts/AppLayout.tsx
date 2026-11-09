@@ -32,7 +32,7 @@ export function AppLayout() {
   const handleLogout = () => setLogoutModalOpen(true);
 
   const confirmLogout = async () => {
-    const destination = user?.role === "field_recovery" ? "/field-login" : "/login";
+    const destination = user?.role === "employee" || user?.role === "field_recovery" || user?.role === "accounts_manager" ? "/employee-login" : "/login";
     setIsLoggingOut(true);
     try {
       await logout();
@@ -55,9 +55,6 @@ export function AppLayout() {
 
   const navItems = user?.role === "super_admin" ? [
     { label: "Platform admin", path: "/platform", icon: Building2 },
-  ] : user?.role === "field_recovery" ? [
-    ...(moduleEnabled("recovery") ? [{ label: "My assigned visits", path: "/recovery", icon: Target }] : []),
-    ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
   ] : [
     ...(moduleEnabled("reports") ? [{ label: "Dashboard", path: "/dashboard", icon: LayoutDashboard }] : []),
     ...(moduleEnabled("recovery") ? [{ label: "Recovery", path: "/recovery", icon: Target }] : []),

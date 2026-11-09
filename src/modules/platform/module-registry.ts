@@ -17,7 +17,7 @@ export function organizationModuleEnabled(modules: OrganizationModules | undefin
   return modules?.[moduleKey] ?? ORGANIZATION_MODULES.find((module) => module.key === moduleKey)!.defaultEnabled;
 }
 
-export function userCanAccessModule(role: string | undefined, modules: OrganizationModules | undefined, permissions: Record<string, boolean> | undefined, moduleKey: OrganizationModuleKey, permissionsConfigured = true) {
+export function userCanAccessModule(role: string | undefined, modules: OrganizationModules | undefined, permissions: Record<string, boolean> | undefined, moduleKey: OrganizationModuleKey, permissionsConfigured = false) {
   const roleRequiresGrant = role !== undefined && role !== "org_admin" && role !== "super_admin";
-  return organizationModuleEnabled(modules, moduleKey) && (!roleRequiresGrant || !permissionsConfigured || permissions?.[moduleKey] === true);
+  return organizationModuleEnabled(modules, moduleKey) && (!roleRequiresGrant || (permissionsConfigured && permissions?.[moduleKey] === true));
 }

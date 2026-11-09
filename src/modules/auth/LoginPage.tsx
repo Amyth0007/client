@@ -7,8 +7,8 @@ import { useAuth } from "./AuthContext.js";
 import { Input } from "../../components/common/Input.js";
 import { Button } from "../../components/common/Button.js";
 
-export function LoginPage({ fieldOnly = false }: { fieldOnly?: boolean }) {
-  const { login, logout } = useAuth();
+export function LoginPage({ employeeLogin = false }: { employeeLogin?: boolean }) {
+  const { login, isLoading: isAuthInitializing } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
@@ -31,18 +31,8 @@ export function LoginPage({ fieldOnly = false }: { fieldOnly?: boolean }) {
     setError(null);
     setIsLoading(true);
     try {
-      const user = await login(values);
-      if (fieldOnly && user.role !== "field_recovery") {
-        try { await logout(); } catch { /* Clear the local session even if logout request fails. */ }
-        setError("This sign-in is for field executives. Use the organization sign-in instead.");
-        return;
-      }
-      if (!fieldOnly && user.role === "field_recovery") {
-        try { await logout(); } catch { /* Clear the local session even if logout request fails. */ }
-        setError("Field executives must sign in through the field executive login.");
-        return;
-      }
-      navigate(fieldOnly ? "/recovery" : from, { replace: true });
+      await login(values);
+      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err?.message || "Failed to sign in. Check email and password.");
     } finally {
@@ -58,7 +48,7 @@ export function LoginPage({ fieldOnly = false }: { fieldOnly?: boolean }) {
             <Building2 className="h-6 w-6" />
           </div>
           <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
-            {fieldOnly ? "Field Executive Sign In" : "Sign in to Recovr"}
+            {employeeLogin ? "Organization Employee Login" : "Sign in to Recovr"}
           </h2>
           <p className="mt-1.5 text-xs text-slate-600">
             B2B Receivables and Payment Recovery SaaS
@@ -92,7 +82,7 @@ export function LoginPage({ fieldOnly = false }: { fieldOnly?: boolean }) {
             />
 
             <div className="pt-2">
-              <Button type="submit" className="w-full" size="lg" isLoading={isLoading}>
+              <Button type="submit" className="w-full" size="lg" disabled={isAuthInitializing} isLoading={isLoading || isAuthInitializing}>
                 <span>Sign in</span>
                 <ArrowRight className="h-4 w-4" />
               </Button>
@@ -101,12 +91,12 @@ export function LoginPage({ fieldOnly = false }: { fieldOnly?: boolean }) {
         </div>
 
         <p className="text-center text-xs text-slate-500">
-          {fieldOnly ? "Sign in to view your assigned recovery visits." : "Secure multi-tenant B2B receivables platform"}
+          {employeeLogin ? "Sign in with your organization account and assigned screen permissions." : "Secure multi-tenant B2B receivables platform"}
         </p>
         <p className="text-center text-sm text-slate-600">
-          {fieldOnly ? "Organization team? " : "Field executive? "}
-          <Link className="font-medium text-indigo-600 hover:underline" to={fieldOnly ? "/login" : "/field-login"}>
-            {fieldOnly ? "Organization sign in" : "Use field login"}
+          {employeeLogin ? "Organization administrator? " : "Organization employee? "}
+          <Link className="font-medium text-indigo-600 hover:underline" to={employeeLogin ? "/login" : "/employee-login"}>
+            {employeeLogin ? "Administrator sign in" : "Employee sign in"}
           </Link>
         </p>
       </div>
