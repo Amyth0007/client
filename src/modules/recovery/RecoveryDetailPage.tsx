@@ -233,7 +233,7 @@ export function RecoveryDetailPage() {
             <span>Record Visit Report</span>
           </Button>
 
-          {user?.role !== "field_recovery" && (
+          {user?.role !== "field_recovery" && user?.role !== "employee" && (
             <Button size="sm" variant="outline" onClick={() => setStatusModalOpen(true)}>
               <span>Update Status</span>
             </Button>
@@ -269,7 +269,7 @@ export function RecoveryDetailPage() {
         <Card title="Assigned Overdue Invoices">
           <div className="space-y-2">
             {assignment.invoices.map((inv: any) => {
-              const canOpenInvoice = user?.role !== "field_recovery";
+              const canOpenInvoice = user?.role !== "field_recovery" && user?.role !== "employee";
               const openInvoice = () => navigate(`/invoices/${inv.id}`);
               return <div
                 key={inv.id}

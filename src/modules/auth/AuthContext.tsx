@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { api, setAccessToken } from "../../services/api-client.js";
+import type { OrganizationModules } from "../platform/module-registry.js";
 
 export type UserProfile = {
   id: string;
   email: string;
   name: string;
-  role: "super_admin" | "org_admin" | "accounts_manager" | "field_recovery";
+  role: "super_admin" | "org_admin" | "accounts_manager" | "field_recovery" | "employee";
+  modulePermissions?: Record<string, boolean>;
+  modulePermissionsConfigured?: boolean;
   organizationId: string | null;
   mustChangePassword: boolean;
   organization?: {
@@ -14,7 +17,7 @@ export type UserProfile = {
     status: string;
     timezone: string;
     currency: string;
-    modules?: { attendance?: boolean };
+    modules?: OrganizationModules;
   } | null;
 };
 
@@ -65,6 +68,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const refreshOnFocus = () => { void refreshProfile(); };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
   }, []);
 
   const login = async (credentials: { email: string; password: string }) => {

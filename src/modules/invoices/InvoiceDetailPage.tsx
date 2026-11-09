@@ -24,8 +24,12 @@ import { QueryError } from "../../components/common/QueryError.js";
 import { FileUpload } from "../../components/common/FileUpload.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
 import { SendEmailModal } from "../gmail/SendEmailModal.js";
+import { useAuth } from "../auth/AuthContext.js";
+import { organizationModuleEnabled } from "../platform/module-registry.js";
 
 export function InvoiceDetailPage() {
+  const { user } = useAuth();
+  const gmailEnabled = organizationModuleEnabled(user?.organization?.modules, "gmail");
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -173,9 +177,9 @@ export function InvoiceDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" disabled={!invoice.customer} title="Send this invoice through your connected Gmail account" onClick={() => setSendEmailOpen(true)}>
+          {gmailEnabled && <Button size="sm" variant="outline" disabled={!invoice.customer} title="Send this invoice through your connected Gmail account" onClick={() => setSendEmailOpen(true)}>
             <Mail className="h-4 w-4" /><span>Email invoice</span>
-          </Button>
+          </Button>}
           {invoice.documentStatus === "draft" && (
             <>
               <Link to={`/invoices/${invoice.id}/edit`}>
@@ -224,7 +228,7 @@ export function InvoiceDetailPage() {
         </div>
       </div>
 
-      {invoice.customer && <SendEmailModal
+      {gmailEnabled && invoice.customer && <SendEmailModal
         key={`${invoice.id}-${invoice.customer.id}`}
         isOpen={sendEmailOpen}
         onClose={() => setSendEmailOpen(false)}

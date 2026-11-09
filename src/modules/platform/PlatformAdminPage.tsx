@@ -11,6 +11,7 @@ import { Input } from "../../components/common/Input.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
 import { Modal } from "../../components/common/Modal.js";
 import { TextArea } from "../../components/common/TextArea.js";
+import { ORGANIZATION_MODULES, type OrganizationModuleKey } from "./module-registry.js";
 
 type Organization = {
   id: string;
@@ -20,7 +21,7 @@ type Organization = {
   timezone: string;
   createdAt: string;
   usage: { userCount: number; invoiceCount: number; storageBytes: number };
-  modules: { attendance: boolean };
+  modules: Partial<Record<OrganizationModuleKey, boolean>>;
 };
 
 const initialForm = { name: "", legalName: "", adminName: "", email: "", password: "" };
@@ -30,6 +31,7 @@ export function PlatformAdminPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [statusTarget, setStatusTarget] = useState<Organization | null>(null);
+  const [permissionsTarget, setPermissionsTarget] = useState<Organization | null>(null);
   const [statusReason, setStatusReason] = useState("");
   const { data, isLoading, isError } = useQuery({
     queryKey: ["platform-organizations"],
@@ -64,9 +66,10 @@ export function PlatformAdminPage() {
   });
 
   const moduleMutation = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.updateOrganizationModule(id, "attendance", enabled),
+    mutationFn: ({ id, moduleId, enabled }: { id: string; moduleId: OrganizationModuleKey; enabled: boolean }) => api.updateOrganizationModule(id, moduleId, enabled),
     onSuccess: (_result, variables) => {
-      toast.success(`Attendance ${variables.enabled ? "enabled" : "disabled"}`);
+      const name = ORGANIZATION_MODULES.find((module) => module.key === variables.moduleId)?.name ?? variables.moduleId;
+      toast.success(`${name} ${variables.enabled ? "enabled" : "disabled"}`);
       void queryClient.invalidateQueries({ queryKey: ["platform-organizations"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -121,8 +124,8 @@ export function PlatformAdminPage() {
           <EmptyState icon={Building2} title="No organizations yet" description="Create an organization to onboard your first customer." />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left text-sm">
-              <thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-600"><th className="pb-3">Organization</th><th className="pb-3">Users</th><th className="pb-3">Created</th><th className="pb-3">Status</th><th className="pb-3">Attendance</th><th className="pb-3 text-right">Action</th></tr></thead>
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-600"><th className="pb-3">Organization</th><th className="pb-3">Users</th><th className="pb-3">Created</th><th className="pb-3">Status</th><th className="pb-3 text-right">Access</th></tr></thead>
               <tbody>
                 {organizations.map((organization) => (
                   <tr key={organization.id} className="border-b border-slate-50 last:border-0">
@@ -130,8 +133,7 @@ export function PlatformAdminPage() {
                     <td className="py-4 text-slate-600">{organization.usage?.userCount ?? 0}</td>
                     <td className="py-4 text-slate-600">{new Date(organization.createdAt).toLocaleDateString()}</td>
                     <td className="py-4"><Badge variant={organization.status === "active" ? "success" : "warning"}>{organization.status}</Badge></td>
-                    <td className="py-4"><button type="button" aria-pressed={organization.modules?.attendance === true} disabled={moduleMutation.isPending} onClick={() => moduleMutation.mutate({ id: organization.id, enabled: organization.modules?.attendance !== true })} className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${organization.modules?.attendance ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{organization.modules?.attendance ? "Enabled" : "Disabled"}</button></td>
-                    <td className="py-4 text-right">{organization.status !== "deactivated" && <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={() => changeStatus(organization)}>{organization.status === "active" ? "Suspend" : "Activate"}</Button>}</td>
+                    <td className="py-4 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => setPermissionsTarget(organization)}>Permissions</Button>{organization.status !== "deactivated" && <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={() => changeStatus(organization)}>{organization.status === "active" ? "Suspend" : "Activate"}</Button>}</div></td>
                   </tr>
                 ))}
               </tbody>
@@ -139,6 +141,24 @@ export function PlatformAdminPage() {
           </div>
         )}
       </Card>
+      <Modal isOpen={Boolean(permissionsTarget)} onClose={() => setPermissionsTarget(null)} title="Organization permissions" description={permissionsTarget ? `Enable or disable product modules for ${permissionsTarget.name}. Changes apply to everyone in this organization.` : undefined}>
+        <div className="space-y-3">
+          <div className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">Module access is controlled at the organization level. Employee screen permissions are managed by that organization’s admin.</div>
+          {ORGANIZATION_MODULES.map((module) => {
+            const enabled = permissionsTarget ? permissionsTarget.modules?.[module.key] ?? module.defaultEnabled : false;
+            return <div key={module.key} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 p-3">
+              <div className="min-w-0"><p className="text-sm font-semibold text-slate-900">{module.name}</p><p className="mt-0.5 text-xs text-slate-600">{module.description}</p></div>
+              <button type="button" role="switch" aria-checked={enabled} aria-label={`${module.name} for ${permissionsTarget?.name}`} disabled={!permissionsTarget || moduleMutation.isPending} onClick={() => {
+                if (!permissionsTarget) return;
+                const next = !enabled;
+                setPermissionsTarget({ ...permissionsTarget, modules: { ...permissionsTarget.modules, [module.key]: next } });
+                moduleMutation.mutate({ id: permissionsTarget.id, moduleId: module.key, enabled: next }, { onError: () => setPermissionsTarget(permissionsTarget) });
+              }} className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${enabled ? "bg-indigo-600" : "bg-slate-300"}`}><span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-6" : "translate-x-1"}`} /></button>
+            </div>;
+          })}
+          <div className="flex justify-end pt-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Done</Button></div>
+        </div>
+      </Modal>
       <Modal isOpen={Boolean(statusTarget)} onClose={() => setStatusTarget(null)} title={statusTarget?.status === "active" ? "Suspend organization" : "Activate organization"} description={statusTarget?.name}>
         <form onSubmit={submitStatusChange} className="space-y-4">
           <TextArea label="Reason" required minLength={3} value={statusReason} onChange={(event) => setStatusReason(event.target.value)} placeholder="Explain why the organization status is changing" />

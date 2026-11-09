@@ -39,11 +39,11 @@ export function RecoveryListPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={user?.role === "field_recovery" ? "My Assigned Visits" : "Recovery Assignments"}
-        description={user?.role === "field_recovery" ? "View your assigned cases and record visit outcomes." : "Field visits, recovery tracking, supervisor assignments, and debtor visits"}
+        title={user?.role === "field_recovery" || user?.role === "employee" ? "My Assigned Visits" : "Recovery Assignments"}
+        description={user?.role === "field_recovery" || user?.role === "employee" ? "View your assigned cases and record visit outcomes." : "Field visits, recovery tracking, supervisor assignments, and debtor visits"}
         action={<div className="flex items-center gap-2">
           <FilterButton count={[status, priority, fromDate, toDate].filter(Boolean).length} onClick={() => setFilterOpen(true)} />
-          {user?.role !== "field_recovery" && <Link to="/recovery/new"><Button><Plus className="h-4 w-4" /><span>New Assignment</span></Button></Link>}
+          {user?.role !== "field_recovery" && user?.role !== "employee" && <Link to="/recovery/new"><Button><Plus className="h-4 w-4" /><span>New Assignment</span></Button></Link>}
         </div>}
       />
       <FilterDialog isOpen={filterOpen} onClose={() => setFilterOpen(false)} onClear={() => { setStatus(""); setPriority(""); setFromDate(""); setToDate(""); setPage(1); }}>

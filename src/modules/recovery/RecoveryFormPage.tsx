@@ -94,7 +94,7 @@ export function RecoveryFormPage() {
 
   const employeeOptions = (employeesData?.data ?? []).map((e: any) => ({
     value: e.id,
-    label: `${e.name} (${e.role === "accounts_manager" ? "Account Manager" : e.role === "field_recovery" ? "Field Executive" : "Organization Admin"})`,
+    label: `${e.name} (${e.role === "accounts_manager" ? "Account Manager" : e.role === "field_recovery" ? "Field Executive" : e.role === "employee" ? "Employee" : "Organization Admin"})`,
   }));
 
   const selectedOutstandingMinor = openInvoices

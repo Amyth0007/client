@@ -12,6 +12,7 @@ import { Input } from "../../components/common/Input.js";
 import { Select } from "../../components/common/Select.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
+import { ORGANIZATION_MODULES, organizationModuleEnabled, type OrganizationModuleKey } from "../platform/module-registry.js";
 
 export function SettingsPage() {
   const { user } = useAuth();
@@ -23,9 +24,13 @@ export function SettingsPage() {
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
   const [isManagingGmail, setIsManagingGmail] = useState(false);
+  const [permissionsTarget, setPermissionsTarget] = useState<any>(null);
+  const [permissionDraft, setPermissionDraft] = useState<string[]>([]);
+  const [isSavingPermissions, setIsSavingPermissions] = useState(false);
 
   const isOrgAdmin = user?.role === "org_admin" || user?.role === "super_admin";
   const canManageGmail = user?.role === "org_admin";
+  const gmailEnabled = !user?.organizationId || organizationModuleEnabled(user.organization?.modules, "gmail");
 
   // Load Organization
   const { data: organization, isLoading: orgLoading } = useQuery({
@@ -36,7 +41,7 @@ export function SettingsPage() {
   const { data: gmailConnection, isLoading: gmailLoading } = useQuery({
     queryKey: ["gmail-connection"],
     queryFn: () => api.getGmailConnection(),
-    enabled: user?.role === "org_admin" || user?.role === "accounts_manager",
+    enabled: gmailEnabled && (user?.role === "org_admin" || user?.role === "accounts_manager"),
   });
 
   useEffect(() => {
@@ -71,6 +76,7 @@ export function SettingsPage() {
     register: regEmp,
     handleSubmit: handleEmpSubmit,
     reset: resetEmpForm,
+    watch: watchEmp,
     formState: { errors: empErrors },
   } = useForm({
     defaultValues: {
@@ -78,6 +84,7 @@ export function SettingsPage() {
       email: "",
       role: "field_recovery",
       temporaryPassword: "",
+      modulePermissions: [] as string[],
     },
   });
 
@@ -121,7 +128,8 @@ export function SettingsPage() {
   const onAddEmployee = async (values: any) => {
     setIsCreatingEmployee(true);
     try {
-      await api.createEmployee(values);
+      const payload = { ...values, modulePermissions: values.role === "org_admin" ? undefined : values.modulePermissions ?? [] };
+      await api.createEmployee(payload);
       toast.success("Employee created successfully!");
       setEmployeeModalOpen(false);
       resetEmpForm();
@@ -131,6 +139,26 @@ export function SettingsPage() {
     } finally {
       setIsCreatingEmployee(false);
     }
+  };
+
+  const editEmployeePermissions = (employee: any) => {
+    setPermissionsTarget(employee);
+    const legacyDefault = !employee.modulePermissionsConfigured;
+    const modules = organization?.modules ?? user?.organization?.modules;
+    setPermissionDraft(legacyDefault
+      ? ORGANIZATION_MODULES.filter((module) => organizationModuleEnabled(modules, module.key)).map((module) => module.key)
+      : Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
+  };
+  const saveEmployeePermissions = async () => {
+    if (!permissionsTarget) return;
+    setIsSavingPermissions(true);
+    try {
+      await api.updateEmployee(permissionsTarget.id, { modulePermissions: permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey)) });
+      toast.success("Screen access updated");
+      setPermissionsTarget(null);
+      await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+    } catch (error: any) { toast.error(error?.message || "Could not update screen access"); }
+    finally { setIsSavingPermissions(false); }
   };
 
   const handleToggleEmployeeStatus = async (emp: any) => {
@@ -178,6 +206,7 @@ export function SettingsPage() {
   };
 
   const employees = employeesData?.data ?? [];
+  const availableOrganizationModules = organization?.modules ?? user?.organization?.modules;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -235,7 +264,7 @@ export function SettingsPage() {
         )}
       </Card>
 
-      <Card title="Gmail integration" subtitle="Send payment reminders and invoice documents from your organization Gmail account">
+      {gmailEnabled && <Card title="Gmail integration" subtitle="Send payment reminders and invoice documents from your organization Gmail account">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="rounded-lg bg-indigo-50 p-2 text-indigo-700"><Mail className="h-5 w-5" /></div>
@@ -252,7 +281,7 @@ export function SettingsPage() {
             {!gmailConnection?.connected && <Button size="sm" isLoading={isManagingGmail} onClick={() => void connectGmail()}>{gmailConnection?.status === "reauthorization_required" ? "Reconnect Gmail" : "Connect Gmail"}</Button>}
           </div>}
         </div>
-      </Card>
+      </Card>}
 
       {/* Employee Management Section (Only visible to Org Admins) */}
       {isOrgAdmin && (
@@ -290,7 +319,7 @@ export function SettingsPage() {
                       </td>
                       <td className="py-3 text-slate-700">
                         {emp.id === user?.id ? (
-                          emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : "Organization Admin"
+                          emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : emp.role === "employee" ? "Employee" : "Organization Admin"
                         ) : (
                           <select
                             value={emp.role}
@@ -301,6 +330,7 @@ export function SettingsPage() {
                             <option value="org_admin">Organization Admin</option>
                             <option value="accounts_manager">Account Manager</option>
                             <option value="field_recovery">Field Executive</option>
+                            <option value="employee">Employee</option>
                           </select>
                         )}
                       </td>
@@ -313,6 +343,7 @@ export function SettingsPage() {
                         {emp.id !== user?.id && (
                           <>
                           <button onClick={() => void handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>
+                          {emp.role !== "org_admin" && <button onClick={() => editEmployeePermissions(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Screens</button>}
                           <button
                             onClick={() => handleToggleEmployeeStatus(emp)}
                             className={`text-xs font-medium hover:underline ${
@@ -365,11 +396,14 @@ export function SettingsPage() {
             required
             options={[
               { value: "field_recovery", label: "Field Executive (Assigned Visits & Follow-up)" },
+              { value: "employee", label: "Employee (Choose screen access)" },
               { value: "accounts_manager", label: "Account Manager (Invoices, Payments & Recovery)" },
               { value: "org_admin", label: "Organization Admin (Full Control)" },
             ]}
             {...regEmp("role")}
           />
+
+          {watchEmp("role") !== "org_admin" && <fieldset className="rounded-xl border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Screens this staff member can access</legend><p className="mb-2 text-xs text-slate-500">Select enabled modules. Greyed options must first be enabled by the platform administrator.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); return <label key={module.key} className={`flex items-start gap-2 rounded-lg p-2 text-xs ${enabledForOrganization ? "hover:bg-slate-50" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" value={module.key} disabled={!enabledForOrganization} {...regEmp("modulePermissions")} /><span><span className="block font-medium text-slate-800">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · enable in Platform Administration" : ""}</span><span className="text-slate-500">{module.description}</span></span></label>; })}</div></fieldset>}
 
           <Input
             label="Temporary Password"
@@ -406,6 +440,10 @@ export function SettingsPage() {
             <Button isLoading={isResettingPassword} onClick={() => void confirmResetEmployeePassword()}>Save password</Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal isOpen={Boolean(permissionsTarget)} onClose={() => setPermissionsTarget(null)} title="Staff screen access" description={permissionsTarget ? `Choose the screens ${permissionsTarget.name} can open.` : undefined}>
+        <div className="space-y-4"><p className="text-xs text-slate-600">Screens must also be enabled for the organization by the platform administrator. Disabled modules are shown so you can see why they cannot be assigned.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); return <label key={module.key} className={`flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm ${enabledForOrganization ? "" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" checked={permissionDraft.includes(module.key)} disabled={!enabledForOrganization} onChange={(event) => setPermissionDraft((current) => event.target.checked ? [...current, module.key] : current.filter((key) => key !== module.key))} /><span><span className="block font-medium">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · disabled for organization" : ""}</span><span className="text-xs text-slate-500">{module.description}</span></span></label>; })}</div><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button><Button isLoading={isSavingPermissions} onClick={() => void saveEmployeePermissions()}>Save access</Button></div></div>
       </Modal>
     </div>
   );

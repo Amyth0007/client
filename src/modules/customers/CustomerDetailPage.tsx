@@ -20,8 +20,12 @@ import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
 import { SendEmailModal } from "../gmail/SendEmailModal.js";
+import { useAuth } from "../auth/AuthContext.js";
+import { organizationModuleEnabled } from "../platform/module-registry.js";
 
 export function CustomerDetailPage() {
+  const { user } = useAuth();
+  const gmailEnabled = organizationModuleEnabled(user?.organization?.modules, "gmail");
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
@@ -132,9 +136,9 @@ export function CustomerDetailPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setSendEmailOpen(true)}>
+          {gmailEnabled && <Button size="sm" variant="outline" onClick={() => setSendEmailOpen(true)}>
             <Mail className="h-4 w-4" /><span>Send Email</span>
-          </Button>
+          </Button>}
           <Link to={`/invoices/new?customerId=${customer.id}`}>
             <Button size="sm">
               <PlusCircle className="h-4 w-4" />
@@ -161,12 +165,12 @@ export function CustomerDetailPage() {
         </div>
       </div>
 
-      <SendEmailModal
+      {gmailEnabled && <SendEmailModal
         key={customer.id}
         isOpen={sendEmailOpen}
         onClose={() => setSendEmailOpen(false)}
         customer={customer}
-      />
+      />}
 
       {/* Grid: Contact & Terms Info */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

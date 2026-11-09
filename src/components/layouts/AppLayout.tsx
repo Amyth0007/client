@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../../modules/auth/AuthContext.js";
 import { Button } from "../common/Button.js";
 import { Modal } from "../common/Modal.js";
+import { userCanAccessModule } from "../../modules/platform/module-registry.js";
 
 export function AppLayout() {
   const { user, logout } = useAuth();
@@ -25,6 +26,8 @@ export function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const moduleEnabled = (moduleKey: "reports" | "customers" | "invoices" | "payments" | "recovery" | "commitments" | "gmail" | "settings" | "attendance") =>
+    !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false);
 
   const handleLogout = () => setLogoutModalOpen(true);
 
@@ -48,22 +51,22 @@ export function AppLayout() {
       ? "Organization Admin"
       : user?.role === "accounts_manager"
         ? "Account Manager"
-        : "Field Executive";
+        : user?.role === "employee" ? "Employee" : "Field Executive";
 
   const navItems = user?.role === "super_admin" ? [
     { label: "Platform admin", path: "/platform", icon: Building2 },
   ] : user?.role === "field_recovery" ? [
-    { label: "My assigned visits", path: "/recovery", icon: Target },
-    ...(user?.organization?.modules?.attendance ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
+    ...(moduleEnabled("recovery") ? [{ label: "My assigned visits", path: "/recovery", icon: Target }] : []),
+    ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
   ] : [
-    { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-    { label: "Recovery", path: "/recovery", icon: Target },
-    { label: "Invoices", path: "/invoices", icon: FileText },
-    { label: "Payments", path: "/payments", icon: CreditCard },
-    { label: "Commitments", path: "/commitments", icon: Handshake },
-    { label: "Customers", path: "/customers", icon: Users },
-    { label: "Settings", path: "/settings", icon: Settings },
-    ...(user?.organization?.modules?.attendance ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
+    ...(moduleEnabled("reports") ? [{ label: "Dashboard", path: "/dashboard", icon: LayoutDashboard }] : []),
+    ...(moduleEnabled("recovery") ? [{ label: "Recovery", path: "/recovery", icon: Target }] : []),
+    ...(moduleEnabled("invoices") ? [{ label: "Invoices", path: "/invoices", icon: FileText }] : []),
+    ...(moduleEnabled("payments") ? [{ label: "Payments", path: "/payments", icon: CreditCard }] : []),
+    ...(moduleEnabled("commitments") ? [{ label: "Commitments", path: "/commitments", icon: Handshake }] : []),
+    ...(moduleEnabled("customers") ? [{ label: "Customers", path: "/customers", icon: Users }] : []),
+    ...(moduleEnabled("settings") ? [{ label: "Settings", path: "/settings", icon: Settings }] : []),
+    ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
   ];
 
   return (
@@ -170,20 +173,20 @@ export function AppLayout() {
           <Building2 className="h-5 w-5 mb-0.5" />
           <span>Platform</span>
         </NavLink> : user?.role === "field_recovery" ? <>
-          <NavLink to="/recovery" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
+          {moduleEnabled("recovery") && <NavLink to="/recovery" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
             <Target className="h-5 w-5 mb-0.5" /><span>My Visits</span>
-          </NavLink>
-          {user.organization?.modules?.attendance && <NavLink to="/attendance" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}><CalendarCheck className="h-5 w-5 mb-0.5" /><span>Attendance</span></NavLink>}
+          </NavLink>}
+          {moduleEnabled("attendance") && <NavLink to="/attendance" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}><CalendarCheck className="h-5 w-5 mb-0.5" /><span>Attendance</span></NavLink>}
         </> : <>
-        <NavLink to="/dashboard" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
+        {moduleEnabled("reports") && <NavLink to="/dashboard" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
           <LayoutDashboard className="h-5 w-5 mb-0.5" /><span>Dashboard</span>
-        </NavLink>
+        </NavLink>}
 
-        <NavLink to="/recovery" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
+        {moduleEnabled("recovery") && <NavLink to="/recovery" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
           <Target className="h-5 w-5 mb-0.5" /><span>Recovery</span>
-        </NavLink>
+        </NavLink>}
 
-        <NavLink
+        {moduleEnabled("invoices") && <NavLink
           to="/invoices"
           className={({ isActive }) =>
             `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${
@@ -193,9 +196,9 @@ export function AppLayout() {
         >
           <FileText className="h-5 w-5 mb-0.5" />
           <span>Invoices</span>
-        </NavLink>
+        </NavLink>}
 
-        <NavLink
+        {moduleEnabled("payments") && <NavLink
           to="/payments"
           className={({ isActive }) =>
             `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${
@@ -205,7 +208,7 @@ export function AppLayout() {
         >
           <CreditCard className="h-5 w-5 mb-0.5" />
           <span>Payments</span>
-        </NavLink>
+        </NavLink>}
         </>}
 
         <button
@@ -241,37 +244,37 @@ export function AppLayout() {
                 </Link>
               ) : user?.role === "field_recovery" ? (
                 <>
-                  <Link to="/recovery" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><Target className="h-5 w-5 text-indigo-600" /><span>My assigned visits</span></Link>
-                  {user.organization?.modules?.attendance && <Link to="/attendance" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><CalendarCheck className="h-5 w-5 text-indigo-600" /><span>Attendance</span></Link>}
+                  {moduleEnabled("recovery") && <Link to="/recovery" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><Target className="h-5 w-5 text-indigo-600" /><span>My assigned visits</span></Link>}
+                  {moduleEnabled("attendance") && <Link to="/attendance" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><CalendarCheck className="h-5 w-5 text-indigo-600" /><span>Attendance</span></Link>}
                 </>
               ) : <>
-              {user?.organization?.modules?.attendance && <Link to="/attendance" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><CalendarCheck className="h-5 w-5 text-indigo-600" /><span>Attendance</span></Link>}
-              <Link
+              {moduleEnabled("attendance") && <Link to="/attendance" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><CalendarCheck className="h-5 w-5 text-indigo-600" /><span>Attendance</span></Link>}
+              {moduleEnabled("commitments") && <Link
                 to="/commitments"
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"
               >
                 <Handshake className="h-5 w-5 text-emerald-600" />
                 <span>Commitments</span>
-              </Link>
+              </Link>}
 
-              <Link
+              {moduleEnabled("customers") && <Link
                 to="/customers"
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"
               >
                 <Users className="h-5 w-5 text-indigo-600" />
                 <span>Customers</span>
-              </Link>
+              </Link>}
 
-              <Link
+              {moduleEnabled("settings") && <Link
                 to="/settings"
                 onClick={() => setMobileMenuOpen(false)}
                 className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"
               >
                 <Settings className="h-5 w-5 text-slate-600" />
                 <span>Settings</span>
-              </Link>
+              </Link>}
               </>}
 
               <button

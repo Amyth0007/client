@@ -1,3 +1,5 @@
+import type { OrganizationModuleKey } from "../modules/platform/module-registry.js";
+
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
@@ -13,13 +15,14 @@ export class ApiError extends Error {
 }
 
 export type AttendanceOfficeLocation = { id: string; name: string; address: string; latitude: number; longitude: number; geofenceRadiusM: number; status: "active" | "inactive" };
-export type AttendancePolicy = { expectedCheckIn: string; expectedCheckOut: string; gracePeriodMinutes: number; halfDayHours: number; gpsAccuracyThresholdM: number; weeklyHolidays: number[]; correctionRequestsEnabled: boolean };
+export type AttendancePolicy = { expectedCheckIn: string; expectedCheckOut: string; gracePeriodMinutes: number; halfDayHours: number; gpsAccuracyThresholdM: number; locationVerificationRequired: boolean; weeklyHolidays: number[]; correctionRequestsEnabled: boolean };
 export type AttendanceRecord = {
-  id: string; employeeId: string; attendanceDate: string; officeLocationId: string; officeName?: string;
-  employee?: { name: string; email: string } | null; status: "checked_in" | "completed"; lateArrival: boolean;
+  id: string; employeeId: string; attendanceDate: string; officeLocationId: string | null; officeName?: string;
+  employee?: { name: string; email: string } | null; status: "checked_in" | "completed" | "present" | "absent" | "leave"; lateArrival: boolean;
+  manualAdjustment?: { id: string; reason: string; checkInAt: string | null; checkOutAt: string | null; adjustedBy: string };
   totalWorkingMinutes: number | null; halfDay: boolean; correctedCheckOutAt: string | null; correctionId: string | null;
-  checkIn: { at: string; latitude: number; longitude: number; gpsAccuracyM: number; officeDistanceM: number; locationVerification: "verified"; photoAssetId: string } | null;
-  checkOut: { at: string; latitude: number; longitude: number; gpsAccuracyM: number; officeDistanceM: number; locationVerification: "verified"; photoAssetId: string } | null;
+  checkIn: { at: string; latitude?: number | null; longitude?: number | null; gpsAccuracyM?: number | null; officeDistanceM?: number | null; locationVerification?: "verified" | "not_enforced"; photoAssetId: string | null; manuallyEntered?: boolean } | null;
+  checkOut: { at: string; latitude?: number | null; longitude?: number | null; gpsAccuracyM?: number | null; officeDistanceM?: number | null; locationVerification?: "verified" | "not_enforced"; photoAssetId: string | null; manuallyEntered?: boolean } | null;
 };
 export type AttendanceCorrection = { id: string; attendanceRecordId: string; employeeId: string; requestedCheckOutAt: string; reason: string; evidenceFileAssetId: string | null; status: "pending" | "approved" | "rejected"; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string; createdAt: string; employee?: { name: string; email: string } | null };
 export type AttendanceDashboard = { date: string; totalEmployees: number; presentToday: number; absentToday: number; lateArrivals: number; currentlyCheckedIn: number; exceptions: number; holiday: boolean };
@@ -415,6 +418,14 @@ export const api = {
     const res = await request<AttendanceOfficeLocation>(`/attendance/locations/${id}`, { method: "PATCH", body: JSON.stringify(data) });
     return res.data;
   },
+  deleteAttendanceLocation: async (id: string) => {
+    const res = await request<{ id: string; status: "inactive" }>(`/attendance/locations/${id}`, { method: "DELETE" });
+    return res.data;
+  },
+  adjustAttendance: async (data: { employeeId: string; attendanceDate: string; status: "present" | "absent" | "leave"; checkInAt?: string; checkOutAt?: string; reason: string }) => {
+    const res = await request<AttendanceRecord>("/attendance/admin/adjustments", { method: "PUT", body: JSON.stringify(data) });
+    return res.data;
+  },
   getAttendanceDashboard: async (date: string) => {
     const res = await request<AttendanceDashboard>(`/attendance/dashboard?date=${encodeURIComponent(date)}`);
     return res.data;
@@ -423,11 +434,11 @@ export const api = {
     const query = buildQueryString(params);
     return request<AttendanceRecord[]>(`/attendance/records?${query}`);
   },
-  checkInAttendance: async (data: { officeLocationId: string; latitude: number; longitude: number; gpsAccuracyM: number; photoAssetId: string }) => {
+  checkInAttendance: async (data: { officeLocationId?: string; latitude?: number; longitude?: number; gpsAccuracyM?: number; photoAssetId: string }) => {
     const res = await request<AttendanceRecord>("/attendance/check-in", { method: "POST", body: JSON.stringify(data) });
     return res.data;
   },
-  checkOutAttendance: async (data: { latitude: number; longitude: number; gpsAccuracyM: number; photoAssetId: string }) => {
+  checkOutAttendance: async (data: { latitude?: number; longitude?: number; gpsAccuracyM?: number; photoAssetId: string }) => {
     const res = await request<AttendanceRecord>("/attendance/check-out", { method: "POST", body: JSON.stringify(data) });
     return res.data;
   },
@@ -463,7 +474,7 @@ export const api = {
     });
     return res.data;
   },
-  updateOrganizationModule: async (id: string, moduleId: "attendance", enabled: boolean) => {
+  updateOrganizationModule: async (id: string, moduleId: OrganizationModuleKey, enabled: boolean) => {
     const res = await request<any>(`/platform/organizations/${id}/modules/${moduleId}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
     return res.data;
   },
