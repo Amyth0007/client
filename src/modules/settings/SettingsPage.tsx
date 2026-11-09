@@ -300,24 +300,25 @@ export function SettingsPage() {
           ) : employees.length === 0 ? (
             <p className="text-xs text-slate-500 py-6 text-center">No team members found.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <p className="border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500 sm:hidden">Swipe horizontally to view roles and actions.</p>
+              <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-xs">
                 <thead>
-                  <tr className="border-b border-slate-100 text-slate-500 uppercase font-semibold">
-                    <th className="pb-3">Name & Email</th>
-                    <th className="pb-3">Role</th>
-                    <th className="pb-3 text-center">Status</th>
-                    <th className="pb-3 text-right">Actions</th>
+                  <tr className="bg-slate-50 text-slate-500 uppercase font-semibold">
+                    <th className="whitespace-nowrap px-4 py-3">Name & Email</th>
+                    <th className="whitespace-nowrap px-4 py-3">Role</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center">Status</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {employees.map((emp: any) => (
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-3">
-                        <span className="font-semibold text-slate-900 block">{emp.name}</span>
-                        <span className="text-slate-500">{emp.email}</span>
+                      <td className="min-w-[250px] px-4 py-4">
+                        <span className="block whitespace-nowrap font-semibold text-slate-900">{emp.name}</span>
+                        <span className="block whitespace-nowrap text-slate-500">{emp.email}</span>
                       </td>
-                      <td className="py-3 text-slate-700">
+                      <td className="whitespace-nowrap px-4 py-4 text-slate-700">
                         {emp.id === user?.id ? (
                           emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : emp.role === "employee" ? "Employee" : "Organization Admin"
                         ) : (
@@ -334,12 +335,12 @@ export function SettingsPage() {
                           </select>
                         )}
                       </td>
-                      <td className="py-3 text-center">
+                      <td className="whitespace-nowrap px-4 py-4 text-center">
                         <Badge variant={emp.status === "active" ? "success" : "neutral"}>
                           {emp.status}
                         </Badge>
                       </td>
-                      <td className="py-3 text-right">
+                      <td className="min-w-[250px] whitespace-nowrap px-4 py-4 text-right">
                         {emp.id !== user?.id && (
                           <>
                           <button onClick={() => void handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>

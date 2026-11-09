@@ -24,7 +24,7 @@ export type AttendanceRecord = {
   checkIn: { at: string; latitude?: number | null; longitude?: number | null; gpsAccuracyM?: number | null; officeDistanceM?: number | null; locationVerification?: "verified" | "not_enforced"; photoAssetId: string | null; manuallyEntered?: boolean } | null;
   checkOut: { at: string; latitude?: number | null; longitude?: number | null; gpsAccuracyM?: number | null; officeDistanceM?: number | null; locationVerification?: "verified" | "not_enforced"; photoAssetId: string | null; manuallyEntered?: boolean } | null;
 };
-export type AttendanceCorrection = { id: string; attendanceRecordId: string; employeeId: string; requestedCheckOutAt: string; reason: string; evidenceFileAssetId: string | null; status: "pending" | "approved" | "rejected"; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string; createdAt: string; employee?: { name: string; email: string } | null };
+export type AttendanceCorrection = { id: string; attendanceRecordId: string; employeeId: string; attendanceDate?: string; currentCheckInAt?: string | null; currentCheckOutAt?: string | null; requestedCheckInAt: string | null; requestedCheckOutAt: string | null; reason: string; evidenceFileAssetId: string | null; status: "pending" | "approved" | "rejected"; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string; createdAt: string; employee?: { name: string; email: string } | null };
 export type AttendanceDashboard = { date: string; totalEmployees: number; presentToday: number; absentToday: number; lateArrivals: number; currentlyCheckedIn: number; exceptions: number; holiday: boolean };
 
 let inMemoryToken: string | null = null;
@@ -442,7 +442,7 @@ export const api = {
     const res = await request<AttendanceRecord>("/attendance/check-out", { method: "POST", body: JSON.stringify(data) });
     return res.data;
   },
-  requestAttendanceCorrection: async (data: { attendanceRecordId: string; requestedCheckOutAt: string; reason: string; evidenceFileAssetId?: string }) => {
+  requestAttendanceCorrection: async (data: { attendanceRecordId: string; requestedCheckInAt?: string; requestedCheckOutAt?: string; reason: string; evidenceFileAssetId?: string }) => {
     const res = await request<AttendanceCorrection>("/attendance/corrections", { method: "POST", body: JSON.stringify(data) });
     return res.data;
   },

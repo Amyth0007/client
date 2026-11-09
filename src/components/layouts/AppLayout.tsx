@@ -68,6 +68,8 @@ export function AppLayout() {
     ...(moduleEnabled("settings") ? [{ label: "Settings", path: "/settings", icon: Settings }] : []),
     ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
   ];
+  const mobilePrimaryItems = navItems.length > 4 ? navItems.slice(0, 3) : navItems;
+  const mobileOverflowItems = navItems.slice(mobilePrimaryItems.length);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex">
@@ -165,61 +167,17 @@ export function AppLayout() {
       </div>
 
       {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-40 flex items-center justify-around h-16 px-1 shadow-lg">
-        {user?.role === "super_admin" ? <NavLink
-          to="/platform"
-          className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}
-        >
-          <Building2 className="h-5 w-5 mb-0.5" />
-          <span>Platform</span>
-        </NavLink> : user?.role === "field_recovery" ? <>
-          {moduleEnabled("recovery") && <NavLink to="/recovery" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
-            <Target className="h-5 w-5 mb-0.5" /><span>My Visits</span>
-          </NavLink>}
-          {moduleEnabled("attendance") && <NavLink to="/attendance" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}><CalendarCheck className="h-5 w-5 mb-0.5" /><span>Attendance</span></NavLink>}
-        </> : <>
-        {moduleEnabled("reports") && <NavLink to="/dashboard" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
-          <LayoutDashboard className="h-5 w-5 mb-0.5" /><span>Dashboard</span>
-        </NavLink>}
-
-        {moduleEnabled("recovery") && <NavLink to="/recovery" className={({ isActive }) => `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
-          <Target className="h-5 w-5 mb-0.5" /><span>Recovery</span>
-        </NavLink>}
-
-        {moduleEnabled("invoices") && <NavLink
-          to="/invoices"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${
-              isActive ? "text-indigo-700" : "text-slate-700"
-            }`
-          }
-        >
-          <FileText className="h-5 w-5 mb-0.5" />
-          <span>Invoices</span>
-        </NavLink>}
-
-        {moduleEnabled("payments") && <NavLink
-          to="/payments"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold transition-colors ${
-              isActive ? "text-indigo-700" : "text-slate-700"
-            }`
-          }
-        >
-          <CreditCard className="h-5 w-5 mb-0.5" />
-          <span>Payments</span>
-        </NavLink>}
-        </>}
-
-        <button
-          onClick={() => setMobileMenuOpen(true)}
-          className="flex flex-col items-center justify-center py-1 px-1 text-xs mobile-nav-label font-semibold text-slate-700 hover:text-slate-800"
-        >
-          <MoreHorizontal className="h-5 w-5 mb-0.5" />
-          <span>More</span>
+      <nav aria-label="Primary navigation" className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-40 flex items-stretch h-16 px-1 shadow-lg">
+        {mobilePrimaryItems.map((item) => {
+          const Icon = item.icon;
+          return <NavLink key={item.path} to={item.path} className={({ isActive }) => `flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
+            <Icon className="h-5 w-5 shrink-0" /><span className="max-w-full truncate">{item.label}</span>
+          </NavLink>;
+        })}
+        <button onClick={() => setMobileMenuOpen(true)} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-semibold text-slate-700 hover:text-slate-800">
+          <MoreHorizontal className="h-5 w-5" /><span>More</span>
         </button>
       </nav>
-
       {/* Mobile "More" Slide-up Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
@@ -238,44 +196,12 @@ export function AppLayout() {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3 py-4">
-              {user?.role === "super_admin" ? (
-                <Link to="/platform" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs">
-                  <Building2 className="h-5 w-5 text-indigo-600" /><span>Platform admin</span>
-                </Link>
-              ) : user?.role === "field_recovery" ? (
-                <>
-                  {moduleEnabled("recovery") && <Link to="/recovery" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><Target className="h-5 w-5 text-indigo-600" /><span>My assigned visits</span></Link>}
-                  {moduleEnabled("attendance") && <Link to="/attendance" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><CalendarCheck className="h-5 w-5 text-indigo-600" /><span>Attendance</span></Link>}
-                </>
-              ) : <>
-              {moduleEnabled("attendance") && <Link to="/attendance" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"><CalendarCheck className="h-5 w-5 text-indigo-600" /><span>Attendance</span></Link>}
-              {moduleEnabled("commitments") && <Link
-                to="/commitments"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"
-              >
-                <Handshake className="h-5 w-5 text-emerald-600" />
-                <span>Commitments</span>
-              </Link>}
-
-              {moduleEnabled("customers") && <Link
-                to="/customers"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"
-              >
-                <Users className="h-5 w-5 text-indigo-600" />
-                <span>Customers</span>
-              </Link>}
-
-              {moduleEnabled("settings") && <Link
-                to="/settings"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-xs"
-              >
-                <Settings className="h-5 w-5 text-slate-600" />
-                <span>Settings</span>
-              </Link>}
-              </>}
+              {mobileOverflowItems.map((item) => {
+                const Icon = item.icon;
+                return <Link key={item.path} to={item.path} onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                  <Icon className="h-5 w-5 text-indigo-600" /><span>{item.label}</span>
+                </Link>;
+              })}
 
               <button
                 onClick={() => {
