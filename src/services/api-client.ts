@@ -12,6 +12,18 @@ export class ApiError extends Error {
   }
 }
 
+export type AttendanceOfficeLocation = { id: string; name: string; address: string; latitude: number; longitude: number; geofenceRadiusM: number; status: "active" | "inactive" };
+export type AttendancePolicy = { expectedCheckIn: string; expectedCheckOut: string; gracePeriodMinutes: number; halfDayHours: number; gpsAccuracyThresholdM: number; weeklyHolidays: number[]; correctionRequestsEnabled: boolean };
+export type AttendanceRecord = {
+  id: string; employeeId: string; attendanceDate: string; officeLocationId: string; officeName?: string;
+  employee?: { name: string; email: string } | null; status: "checked_in" | "completed"; lateArrival: boolean;
+  totalWorkingMinutes: number | null; halfDay: boolean; correctedCheckOutAt: string | null; correctionId: string | null;
+  checkIn: { at: string; latitude: number; longitude: number; gpsAccuracyM: number; officeDistanceM: number; locationVerification: "verified"; photoAssetId: string } | null;
+  checkOut: { at: string; latitude: number; longitude: number; gpsAccuracyM: number; officeDistanceM: number; locationVerification: "verified"; photoAssetId: string } | null;
+};
+export type AttendanceCorrection = { id: string; attendanceRecordId: string; employeeId: string; requestedCheckOutAt: string; reason: string; evidenceFileAssetId: string | null; status: "pending" | "approved" | "rejected"; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string; createdAt: string; employee?: { name: string; email: string } | null };
+export type AttendanceDashboard = { date: string; totalEmployees: number; presentToday: number; absentToday: number; lateArrivals: number; currentlyCheckedIn: number; exceptions: number; holiday: boolean };
+
 let inMemoryToken: string | null = null;
 
 function apiUrl(path: string): string {
@@ -129,7 +141,12 @@ export const api = {
   },
   logout: async () => {
     try {
-      await request("/auth/logout", { method: "POST" });
+      await fetch(apiUrl("/auth/logout"), {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // Local sign-out must still complete when the network is unavailable.
     } finally {
       setAccessToken(null);
     }
@@ -303,6 +320,13 @@ export const api = {
     const res = await request<any>(`/recovery-assignments/${id}`);
     return res.data;
   },
+  recordRecoveryCallAttempt: async (assignmentId: string, invoiceId: string) => {
+    const res = await request<{ invoiceId: string; callAttemptCount: number; phone: string; attemptedAt: string }>(
+      `/recovery-assignments/${assignmentId}/invoices/${invoiceId}/call-attempts`,
+      { method: "POST" },
+    );
+    return res.data;
+  },
   createRecoveryAssignment: async (data: any) => {
     const res = await request<any>("/recovery-assignments", {
       method: "POST",
@@ -374,6 +398,52 @@ export const api = {
     return res.data;
   },
 
+  // Attendance
+  getAttendanceConfig: async () => {
+    const res = await request<{ policy: AttendancePolicy; locations: AttendanceOfficeLocation[] }>("/attendance/config");
+    return res.data;
+  },
+  updateAttendancePolicy: async (data: AttendancePolicy) => {
+    const res = await request<AttendancePolicy>("/attendance/policy", { method: "PATCH", body: JSON.stringify(data) });
+    return res.data;
+  },
+  createAttendanceLocation: async (data: Omit<AttendanceOfficeLocation, "id">) => {
+    const res = await request<AttendanceOfficeLocation>("/attendance/locations", { method: "POST", body: JSON.stringify(data) });
+    return res.data;
+  },
+  updateAttendanceLocation: async (id: string, data: Omit<AttendanceOfficeLocation, "id">) => {
+    const res = await request<AttendanceOfficeLocation>(`/attendance/locations/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+    return res.data;
+  },
+  getAttendanceDashboard: async (date: string) => {
+    const res = await request<AttendanceDashboard>(`/attendance/dashboard?date=${encodeURIComponent(date)}`);
+    return res.data;
+  },
+  listAttendanceRecords: async (params?: Record<string, unknown>) => {
+    const query = buildQueryString(params);
+    return request<AttendanceRecord[]>(`/attendance/records?${query}`);
+  },
+  checkInAttendance: async (data: { officeLocationId: string; latitude: number; longitude: number; gpsAccuracyM: number; photoAssetId: string }) => {
+    const res = await request<AttendanceRecord>("/attendance/check-in", { method: "POST", body: JSON.stringify(data) });
+    return res.data;
+  },
+  checkOutAttendance: async (data: { latitude: number; longitude: number; gpsAccuracyM: number; photoAssetId: string }) => {
+    const res = await request<AttendanceRecord>("/attendance/check-out", { method: "POST", body: JSON.stringify(data) });
+    return res.data;
+  },
+  requestAttendanceCorrection: async (data: { attendanceRecordId: string; requestedCheckOutAt: string; reason: string; evidenceFileAssetId?: string }) => {
+    const res = await request<AttendanceCorrection>("/attendance/corrections", { method: "POST", body: JSON.stringify(data) });
+    return res.data;
+  },
+  listAttendanceCorrections: async (mine = false, params?: Record<string, unknown>) => {
+    const query = buildQueryString(params);
+    return request<AttendanceCorrection[]>(`/attendance/corrections${mine ? "/mine" : ""}?${query}`);
+  },
+  reviewAttendanceCorrection: async (id: string, decision: "approved" | "rejected", comment: string) => {
+    const res = await request<AttendanceCorrection>(`/attendance/corrections/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision, comment }) });
+    return res.data;
+  },
+
   // Platform administration
   listOrganizations: async (params?: Record<string, string>) => {
     const query = buildQueryString(params);
@@ -391,6 +461,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+    return res.data;
+  },
+  updateOrganizationModule: async (id: string, moduleId: "attendance", enabled: boolean) => {
+    const res = await request<any>(`/platform/organizations/${id}/modules/${moduleId}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
     return res.data;
   },
 

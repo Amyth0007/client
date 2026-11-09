@@ -20,6 +20,7 @@ type Organization = {
   timezone: string;
   createdAt: string;
   usage: { userCount: number; invoiceCount: number; storageBytes: number };
+  modules: { attendance: boolean };
 };
 
 const initialForm = { name: "", legalName: "", adminName: "", email: "", password: "" };
@@ -57,6 +58,15 @@ export function PlatformAdminPage() {
     onSuccess: () => {
       toast.success("Organization status updated");
       setStatusTarget(null);
+      void queryClient.invalidateQueries({ queryKey: ["platform-organizations"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const moduleMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.updateOrganizationModule(id, "attendance", enabled),
+    onSuccess: (_result, variables) => {
+      toast.success(`Attendance ${variables.enabled ? "enabled" : "disabled"}`);
       void queryClient.invalidateQueries({ queryKey: ["platform-organizations"] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -112,7 +122,7 @@ export function PlatformAdminPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px] text-left text-sm">
-              <thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-600"><th className="pb-3">Organization</th><th className="pb-3">Users</th><th className="pb-3">Created</th><th className="pb-3">Status</th><th className="pb-3 text-right">Action</th></tr></thead>
+              <thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-600"><th className="pb-3">Organization</th><th className="pb-3">Users</th><th className="pb-3">Created</th><th className="pb-3">Status</th><th className="pb-3">Attendance</th><th className="pb-3 text-right">Action</th></tr></thead>
               <tbody>
                 {organizations.map((organization) => (
                   <tr key={organization.id} className="border-b border-slate-50 last:border-0">
@@ -120,6 +130,7 @@ export function PlatformAdminPage() {
                     <td className="py-4 text-slate-600">{organization.usage?.userCount ?? 0}</td>
                     <td className="py-4 text-slate-600">{new Date(organization.createdAt).toLocaleDateString()}</td>
                     <td className="py-4"><Badge variant={organization.status === "active" ? "success" : "warning"}>{organization.status}</Badge></td>
+                    <td className="py-4"><button type="button" aria-pressed={organization.modules?.attendance === true} disabled={moduleMutation.isPending} onClick={() => moduleMutation.mutate({ id: organization.id, enabled: organization.modules?.attendance !== true })} className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${organization.modules?.attendance ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{organization.modules?.attendance ? "Enabled" : "Disabled"}</button></td>
                     <td className="py-4 text-right">{organization.status !== "deactivated" && <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={() => changeStatus(organization)}>{organization.status === "active" ? "Suspend" : "Activate"}</Button>}</td>
                   </tr>
                 ))}

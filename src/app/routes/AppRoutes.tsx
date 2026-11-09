@@ -21,6 +21,7 @@ import { CommitmentDetailPage } from "../../modules/commitments/CommitmentDetail
 import { SettingsPage } from "../../modules/settings/SettingsPage.js";
 import { NotFoundPage } from "./NotFoundPage.js";
 import { PlatformAdminPage } from "../../modules/platform/PlatformAdminPage.js";
+import { AttendancePage } from "../../modules/attendance/AttendancePage.js";
 import { useAuth } from "../../modules/auth/AuthContext.js";
 
 function DefaultDashboard() {
@@ -76,6 +77,7 @@ export function AppRoutes() {
 
           {/* Settings */}
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/attendance" element={<AttendancePage />} />
 
           <Route path="*" element={<NotFoundPage />} />
         </Route>

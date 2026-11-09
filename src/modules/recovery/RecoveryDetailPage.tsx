@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
 import {
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   MapPin,
   CheckCircle2,
   Navigation,
+  PhoneCall,
 } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { useAuth } from "../auth/AuthContext.js";
@@ -58,6 +59,23 @@ export function RecoveryDetailPage() {
 
   const assignment = data?.assignment;
   const visits = data?.visits ?? [];
+
+  const callAttemptMutation = useMutation({
+    mutationFn: (invoiceId: string) => api.recordRecoveryCallAttempt(id!, invoiceId),
+    onSuccess: (result) => {
+      queryClient.setQueryData(["recovery-assignment", id], (current: typeof data) => current ? ({
+        ...current,
+        assignment: {
+          ...current.assignment,
+          invoices: current.assignment.invoices.map((invoice: { id: string; callAttemptCount?: number }) => invoice.id === result.invoiceId
+            ? { ...invoice, callAttemptCount: result.callAttemptCount }
+            : invoice),
+        },
+      }) : current);
+      window.location.href = `tel:${result.phone}`;
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
   if (isLoading || !assignment) {
     return (
@@ -206,6 +224,7 @@ export function RecoveryDetailPage() {
               {assignment.assignee?.name || "Unassigned"}
             </span>
           </p>
+          <p className="text-xs text-slate-500 mt-1">Customer phone: {assignment.customer?.phone || "Not available — add a phone number to the customer record to enable calling."}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -270,13 +289,15 @@ export function RecoveryDetailPage() {
                   <span className={canOpenInvoice ? "font-bold text-indigo-700 underline decoration-indigo-300 underline-offset-2" : "font-bold text-slate-700"}>{inv.invoiceNumber}</span>
                   <p className="text-slate-500 mt-0.5">Due Date: {inv.dueDate}</p>
                 </div>
-                <div className="text-right">
-                  <span className="font-bold text-slate-900">
-                    {formatMoney(inv.outstandingMinor)}
-                  </span>
-                  <span className="block text-xs text-slate-500">
-                    Total: {formatMoney(inv.amountMinor)}
-                  </span>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <span className="font-bold text-slate-900">{formatMoney(inv.outstandingMinor)}</span>
+                    <span className="block text-xs text-slate-500">Total: {formatMoney(inv.amountMinor)}</span>
+                    <span className="block text-xs text-slate-500">Call attempts: {inv.callAttemptCount ?? 0}</span>
+                  </div>
+                  <Button size="sm" variant="outline" disabled={!assignment.customer?.phone || callAttemptMutation.isPending} isLoading={callAttemptMutation.isPending} onClick={(event) => { event.stopPropagation(); callAttemptMutation.mutate(inv.id); }}>
+                    <PhoneCall className="h-3.5 w-3.5" />Call
+                  </Button>
                 </div>
               </div>;
             })}

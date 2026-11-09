@@ -14,6 +14,7 @@ export type UserProfile = {
     status: string;
     timezone: string;
     currency: string;
+    modules?: { attendance?: boolean };
   } | null;
 };
 
