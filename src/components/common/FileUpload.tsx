@@ -16,9 +16,9 @@ type FileUploadProps = {
 
 export function FileUpload({
   purpose,
-  label = "Upload file (PDF, Image up to 10MB)",
+  label = "Upload image (up to 10 MB)",
   onUploaded,
-  accept = "application/pdf,image/*",
+  accept = "image/*",
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -27,6 +27,10 @@ export function FileUpload({
 
   const handleFile = async (file: File) => {
     setError(null);
+    if (!file.type.startsWith("image/")) {
+      setError("Choose an image file. PDF and other documents are not accepted.");
+      return;
+    }
     setIsUploading(true);
     setFileName(file.name);
     try {

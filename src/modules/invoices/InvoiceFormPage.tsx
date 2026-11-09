@@ -265,7 +265,7 @@ export function InvoiceFormPage() {
         <Card title="Invoice Document Asset">
           <FileUpload
             purpose="invoice_document"
-            label="Upload Signed Invoice PDF or Scan"
+            label="Upload invoice image"
             onUploaded={(fileId) => setValue("primaryFileAssetId", fileId)}
           />
         </Card>

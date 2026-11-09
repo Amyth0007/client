@@ -400,6 +400,7 @@ export function InvoiceDetailPage() {
                   )}
                   {item.remarks && <p className="text-slate-600 italic mt-0.5">{item.remarks}</p>}
                   {item.files?.map((file: any) => <div key={file.id} className="mt-2"><EvidencePreviewButton fileId={file.id} label={`View signed invoice${file.originalFilename ? `: ${file.originalFilename}` : ""}`} /></div>)}
+                  {invoice.primaryFileAssetId && <div className="mt-2"><EvidencePreviewButton fileId={invoice.primaryFileAssetId} label="View uploaded invoice image" /></div>}
                 </div>
               </div>
             ))}

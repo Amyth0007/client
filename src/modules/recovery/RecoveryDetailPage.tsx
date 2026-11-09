@@ -20,8 +20,8 @@ import { Input } from "../../components/common/Input.js";
 import { Select } from "../../components/common/Select.js";
 import { TextArea } from "../../components/common/TextArea.js";
 import { MoneyInput } from "../../components/common/MoneyInput.js";
-import { FileUpload } from "../../components/common/FileUpload.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
+import { VisitEvidenceCapture } from "./VisitEvidenceCapture.js";
 
 export function RecoveryDetailPage() {
   const { user } = useAuth();
@@ -477,13 +477,7 @@ export function RecoveryDetailPage() {
             </div>
           </div>
 
-          <FileUpload
-            purpose="visit_evidence"
-            label="Attach Visit Evidence (Photo of Premises, Signed Note, Cheque)"
-            accept="image/*"
-            onUploaded={(fileId) => setVisitData({ ...visitData, fileAssetId: fileId })}
-          />
-          {!visitData.fileAssetId && <p className="text-xs text-rose-600">A visit photo is required.</p>}
+          <VisitEvidenceCapture fileAssetId={visitData.fileAssetId} onUploaded={(fileId) => setVisitData((prev) => ({ ...prev, fileAssetId: fileId }))} />
 
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setVisitModalOpen(false)}>
