@@ -23,38 +23,7 @@ import { TextArea } from "../../components/common/TextArea.js";
 import { QueryError } from "../../components/common/QueryError.js";
 import { FileUpload } from "../../components/common/FileUpload.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
-
-function invoiceEmailDraft(invoice: any): { email: string; subject: string; body: string } | null {
-  const email = invoice.customer?.email?.trim();
-  if (!email) return null;
-
-  const body = [
-    "INVOICE SUMMARY",
-    "============================================================",
-    `Invoice number : ${invoice.invoiceNumber}`,
-    `Status         : ${invoice.documentStatus.toUpperCase()}`,
-    `Invoice date   : ${invoice.invoiceDate}`,
-    `Due date       : ${invoice.dueDate}`,
-    "",
-    "CUSTOMER",
-    "------------------------------------------------------------",
-    invoice.customer.displayName,
-    invoice.customer.companyName || "",
-    invoice.customer.email,
-    invoice.customer.phone || "",
-    "",
-    "AMOUNT SUMMARY",
-    "------------------------------------------------------------",
-    `Invoice total  : ${formatMoney(invoice.amountMinor)}`,
-    `Amount paid    : ${formatMoney(invoice.amountMinor - invoice.outstandingMinor)}`,
-    `Balance due    : ${formatMoney(invoice.outstandingMinor)}`,
-    "",
-    invoice.notes ? `Notes: ${invoice.notes}` : "",
-    "",
-    "This message was prepared from the invoice details in Recovr.",
-  ].filter((line) => line !== undefined).join("\n");
-  return { email, subject: `Invoice ${invoice.invoiceNumber}`, body };
-}
+import { SendEmailModal } from "../gmail/SendEmailModal.js";
 
 export function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -72,6 +41,7 @@ export function InvoiceDetailPage() {
   const [ackFileAssetId, setAckFileAssetId] = useState<string | null>(null);
   const [isUpdatingAck, setIsUpdatingAck] = useState(false);
   const [customerDetailsOpen, setCustomerDetailsOpen] = useState(false);
+  const [sendEmailOpen, setSendEmailOpen] = useState(false);
 
   const { data: invoice, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["invoice", id],
@@ -162,8 +132,6 @@ export function InvoiceDetailPage() {
     invoice.documentStatus === "issued" &&
     invoice.outstandingMinor > 0 &&
     invoice.dueDate < new Date().toISOString().slice(0, 10);
-  const emailDraft = invoiceEmailDraft(invoice);
-  const mailtoParams = emailDraft ? new URLSearchParams({ subject: emailDraft.subject, body: emailDraft.body }) : null;
   const invoiceFlow = [
     { id: `created-${invoice.id}`, date: invoice.createdAt, title: "Invoice created", detail: "Draft entered in the system", amount: null },
     ...ledger.map((entry: any) => ({ id: `ledger-${entry.id}`, date: entry.effectiveDate, title: entry.type.replace(/_/g, " "), detail: entry.payment?.reference ? `Payment ${entry.payment.reference}` : `Recorded by ${entry.recordedBy?.name || "System"}`, amount: entry.amountMinor, paymentId: entry.payment?.id })),
@@ -205,13 +173,7 @@ export function InvoiceDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" disabled={!emailDraft} title={emailDraft ? "Open a formatted invoice email draft" : "Add an email address to this customer first"} onClick={() => {
-            if (!emailDraft || !mailtoParams) return;
-            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(emailDraft.email)}&su=${encodeURIComponent(emailDraft.subject)}&body=${encodeURIComponent(emailDraft.body)}`;
-            const opened = window.open(gmailUrl, "_blank");
-            if (opened) opened.opener = null;
-            if (!opened) window.location.assign(`mailto:${emailDraft.email}?${mailtoParams.toString()}`);
-          }}>
+          <Button size="sm" variant="outline" disabled={!invoice.customer} title="Send this invoice through your connected Gmail account" onClick={() => setSendEmailOpen(true)}>
             <Mail className="h-4 w-4" /><span>Email invoice</span>
           </Button>
           {invoice.documentStatus === "draft" && (
@@ -261,6 +223,14 @@ export function InvoiceDetailPage() {
           </Button>
         </div>
       </div>
+
+      {invoice.customer && <SendEmailModal
+        key={`${invoice.id}-${invoice.customer.id}`}
+        isOpen={sendEmailOpen}
+        onClose={() => setSendEmailOpen(false)}
+        customer={invoice.customer}
+        invoice={invoice}
+      />}
 
       {/* Financial Details Grid */}
       <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">

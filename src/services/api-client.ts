@@ -150,6 +150,19 @@ export const api = {
     });
     return res.data;
   },
+  getGmailConnection: async () => {
+    const res = await request<{ connected: boolean; status: string; email: string | null; connectedAt: string | null; lastSuccessfulEmailAt: string | null }>("/gmail/connection");
+    return res.data;
+  },
+  startGmailAuthorization: async () => {
+    const res = await request<{ authorizationUrl: string }>("/gmail/oauth/start", { method: "POST" });
+    return res.data.authorizationUrl;
+  },
+  disconnectGmail: async () => request("/gmail/disconnect", { method: "POST" }),
+  sendEmail: async (data: { customerId: string; invoiceId?: string; recipientEmail: string; subject: string; body: string }) => {
+    const res = await request<{ id: string; gmailMessageId: string; sentAt: string }>("/gmail/send", { method: "POST", body: JSON.stringify(data) });
+    return res.data;
+  },
   listEmployees: async (params?: Record<string, any>) => {
     const query = buildQueryString(params);
     return request<any[]>(`/users?${query}`);

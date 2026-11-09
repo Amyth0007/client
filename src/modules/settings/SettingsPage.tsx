@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { toast } from "react-hot-toast";
-import { Plus } from "lucide-react";
+import { Mail, Plus } from "lucide-react";
 import { api } from "../../services/api-client.js";
 import { useAuth } from "../auth/AuthContext.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
@@ -22,14 +22,32 @@ export function SettingsPage() {
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
+  const [isManagingGmail, setIsManagingGmail] = useState(false);
 
   const isOrgAdmin = user?.role === "org_admin" || user?.role === "super_admin";
+  const canManageGmail = user?.role === "org_admin";
 
   // Load Organization
   const { data: organization, isLoading: orgLoading } = useQuery({
     queryKey: ["organization-settings"],
     queryFn: () => api.getOrganization(),
   });
+
+  const { data: gmailConnection, isLoading: gmailLoading } = useQuery({
+    queryKey: ["gmail-connection"],
+    queryFn: () => api.getGmailConnection(),
+    enabled: user?.role === "org_admin" || user?.role === "accounts_manager",
+  });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("gmail");
+    if (!result) return;
+    if (result === "connected") toast.success("Gmail connected successfully");
+    else toast.error("Gmail authorization was not completed. You can try again.");
+    window.history.replaceState({}, "", window.location.pathname);
+    void queryClient.invalidateQueries({ queryKey: ["gmail-connection"] });
+  }, [queryClient]);
 
   // Load Employees
   const { data: employeesData, isLoading: employeesLoading } = useQuery({
@@ -73,6 +91,30 @@ export function SettingsPage() {
       toast.error(err?.message || "Failed to update organization");
     } finally {
       setIsSavingOrg(false);
+    }
+  };
+
+  const connectGmail = async () => {
+    setIsManagingGmail(true);
+    try {
+      const authorizationUrl = await api.startGmailAuthorization();
+      window.location.assign(authorizationUrl);
+    } catch (err: any) {
+      toast.error(err?.message || "Could not start Gmail authorization");
+      setIsManagingGmail(false);
+    }
+  };
+
+  const disconnectGmail = async () => {
+    setIsManagingGmail(true);
+    try {
+      await api.disconnectGmail();
+      toast.success("Gmail disconnected");
+      await queryClient.invalidateQueries({ queryKey: ["gmail-connection"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Could not disconnect Gmail");
+    } finally {
+      setIsManagingGmail(false);
     }
   };
 
@@ -191,6 +233,25 @@ export function SettingsPage() {
             )}
           </form>
         )}
+      </Card>
+
+      <Card title="Gmail integration" subtitle="Send payment reminders and invoice documents from your organization Gmail account">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-indigo-50 p-2 text-indigo-700"><Mail className="h-5 w-5" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                {gmailLoading ? "Checking connection…" : gmailConnection?.connected ? `Connected as ${gmailConnection.email}` : gmailConnection?.status === "reauthorization_required" ? `Reconnect ${gmailConnection.email || "Gmail"}` : "No Gmail account connected"}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">Only permission to send mail is requested. Inbox access is not requested.</p>
+              {gmailConnection?.lastSuccessfulEmailAt && <p className="mt-1 text-xs text-slate-500">Last email sent {new Date(gmailConnection.lastSuccessfulEmailAt).toLocaleString()}</p>}
+            </div>
+          </div>
+          {canManageGmail && <div className="flex flex-wrap gap-2">
+            {gmailConnection?.email && <Button size="sm" variant="outline" isLoading={isManagingGmail} onClick={() => void disconnectGmail()}>Disconnect Gmail</Button>}
+            {!gmailConnection?.connected && <Button size="sm" isLoading={isManagingGmail} onClick={() => void connectGmail()}>{gmailConnection?.status === "reauthorization_required" ? "Reconnect Gmail" : "Connect Gmail"}</Button>}
+          </div>}
+        </div>
       </Card>
 
       {/* Employee Management Section (Only visible to Org Admins) */}

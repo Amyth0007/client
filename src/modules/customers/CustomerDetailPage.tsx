@@ -19,12 +19,14 @@ import { Card } from "../../components/common/Card.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
+import { SendEmailModal } from "../gmail/SendEmailModal.js";
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
+  const [sendEmailOpen, setSendEmailOpen] = useState(false);
 
   const { data: customer, isLoading } = useQuery({
     queryKey: ["customer", id],
@@ -130,6 +132,9 @@ export function CustomerDetailPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setSendEmailOpen(true)}>
+            <Mail className="h-4 w-4" /><span>Send Email</span>
+          </Button>
           <Link to={`/invoices/new?customerId=${customer.id}`}>
             <Button size="sm">
               <PlusCircle className="h-4 w-4" />
@@ -155,6 +160,13 @@ export function CustomerDetailPage() {
           )}
         </div>
       </div>
+
+      <SendEmailModal
+        key={customer.id}
+        isOpen={sendEmailOpen}
+        onClose={() => setSendEmailOpen(false)}
+        customer={customer}
+      />
 
       {/* Grid: Contact & Terms Info */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
