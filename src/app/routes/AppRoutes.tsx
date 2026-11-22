@@ -52,6 +52,9 @@ function DefaultDashboard() {
   }
   if (user?.organizationId && !userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false)) return <ModuleGate moduleKey="reports" />;
   return <DashboardPage />;
+
+
+  
 }
 
 export function AppRoutes() {
