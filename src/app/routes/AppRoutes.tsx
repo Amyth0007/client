@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Link, Navigate, Outlet, Route, Routes, useLocation } from "react-router";
 import { AppLayout } from "../../components/layouts/AppLayout.js";
 import { ProtectedRoute } from "../../modules/auth/ProtectedRoute.js";
@@ -22,35 +23,51 @@ import { SettingsPage } from "../../modules/settings/SettingsPage.js";
 import { NotFoundPage } from "./NotFoundPage.js";
 import { PlatformAdminPage } from "../../modules/platform/PlatformAdminPage.js";
 import { AttendancePage } from "../../modules/attendance/AttendancePage.js";
+import { GuardAttendancePage } from "../../modules/attendance/GuardAttendancePage.js";
+import { WorkforceEmployeesPage } from "../../modules/workforce/WorkforceEmployeesPage.js";
+import { WorkforceShiftsPage } from "../../modules/workforce/WorkforceShiftsPage.js";
+import { PayrollFoundationPage } from "../../modules/workforce/PayrollFoundationPage.js";
+import { PayrollHistoryPage } from "../../modules/workforce/PayrollHistoryPage.js";
+import { OvertimePage } from "../../modules/workforce/OvertimePage.js";
+import { LeavePage } from "../../modules/workforce/LeavePage.js";
+import { WorkforceReportsPage } from "../../modules/workforce/WorkforceReportsPage.js";
+import { CompliancePage } from "../../modules/workforce/CompliancePage.js";
+
+const MyPayslipsPage = lazy(() => import("../../modules/workforce/MyPayslipsPage.js").then((module) => ({ default: module.MyPayslipsPage })));
 import { useAuth } from "../../modules/auth/AuthContext.js";
-import { ORGANIZATION_MODULES, userCanAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
+import { ORGANIZATION_MODULES, organizationModuleEnabled, userCanAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
 
 function ModuleGate({ moduleKey }: { moduleKey: OrganizationModuleKey }) {
   const { user } = useAuth();
   const location = useLocation();
   if (user?.role === "employee" && /\/(new|edit)(\/|$)/.test(location.pathname)) return <Navigate to={`/${moduleKey === "reports" ? "dashboard" : moduleKey}`} replace />;
-  if (!user?.organizationId || userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, moduleKey, user.modulePermissionsConfigured ?? false)) return <Outlet />;
+  if (!user?.organizationId || userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, moduleKey, user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <Outlet />;
+  const moduleEnabled = organizationModuleEnabled(user?.organization?.modules, moduleKey);
+  const hasExplicitScreenGrant = user?.modulePermissionsConfigured && user.modulePermissions?.[moduleKey] === true;
+  const isActionGrantMissing = user?.role === "sub_admin" && moduleEnabled && hasExplicitScreenGrant;
   const moduleName = ORGANIZATION_MODULES.find((module) => module.key === moduleKey)?.name ?? moduleKey;
-  return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold text-slate-900">{moduleName} is disabled</h1><p className="mt-2 text-sm text-slate-600">This module is not enabled for your organization. Contact your organization administrator.</p>{moduleKey !== "settings" && <Link className="mt-4 inline-block text-sm font-medium text-indigo-700 underline" to="/settings">Go to Settings</Link>}</div>;
+  const canOpenSettings = userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, "settings", user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
+  return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold text-slate-900">{isActionGrantMissing ? `No ${moduleName} actions assigned` : `${moduleName} is disabled`}</h1><p className="mt-2 text-sm text-slate-600">{isActionGrantMissing ? "Your administrator enabled this module but has not assigned any actions to your account." : "This module is not enabled for your organization or your screen access is not configured. Contact your organization administrator."}</p>{moduleKey !== "settings" && canOpenSettings && <Link className="mt-4 inline-block text-sm font-medium text-indigo-700 underline" to="/settings">Go to Settings</Link>}</div>;
 }
 
 function DefaultDashboard() {
   const { user } = useAuth();
   const noScreens = <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold">No screens assigned</h1><p className="mt-2 text-sm text-slate-600">Ask your administrator to grant access to a screen.</p></div>;
   if (user?.role === "super_admin") return <Navigate to="/platform" replace />;
+  if (user?.role === "guard") return <Navigate to="/guard/attendance" replace />;
   if (user?.role === "field_recovery") {
-    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "recovery", user.modulePermissionsConfigured ?? false)) return <Navigate to="/recovery" replace />;
-    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "attendance", user.modulePermissionsConfigured ?? false)) return <Navigate to="/attendance" replace />;
+    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "recovery", user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <Navigate to="/recovery" replace />;
+    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "attendance", user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <Navigate to="/attendance" replace />;
     return noScreens;
   }
-  if (user?.role === "employee" || user?.role === "accounts_manager") {
-    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false)) return <DashboardPage />;
-    const first = ["attendance", "recovery", "customers", "invoices", "payments", "commitments", "settings"] as const;
-    const module = first.find((key) => userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, key, user.modulePermissionsConfigured ?? false));
+  if (user?.role === "employee" || user?.role === "accounts_manager" || user?.role === "sub_admin") {
+    if (userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <DashboardPage />;
+    const first = ["workforce", "attendance", "recovery", "customers", "invoices", "payments", "commitments", "settings"] as const;
+    const module = first.find((key) => userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, key, user.modulePermissionsConfigured ?? false, user.actionPermissions));
     if (module) return <Navigate to={`/${module}`} replace />;
     return noScreens;
   }
-  if (user?.organizationId && !userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false)) return <ModuleGate moduleKey="reports" />;
+  if (user?.organizationId && !userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <ModuleGate moduleKey="reports" />;
   return <DashboardPage />;
 
 
@@ -111,7 +128,35 @@ export function AppRoutes() {
           <Route element={<ModuleGate moduleKey="settings" />}>
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
-          <Route path="/attendance" element={<AttendancePage />} />
+          <Route element={<ModuleGate moduleKey="attendance" />}>
+            <Route path="/attendance" element={<AttendancePage />} />
+            <Route element={<ProtectedRoute allowedRoles={["guard", "org_admin", "sub_admin"]} />}><Route path="/guard/attendance" element={<GuardAttendancePage />} /></Route>
+          </Route>
+          <Route element={<ModuleGate moduleKey="workforce" />}>
+            <Route path="/workforce" element={<WorkforceEmployeesPage />} />
+            <Route path="/workforce/shifts" element={<WorkforceShiftsPage />} />
+          </Route>
+          <Route element={<ModuleGate moduleKey="payroll" />}>
+            <Route path="/payroll" element={<PayrollFoundationPage />} />
+            <Route element={<ProtectedRoute allowedRoles={["org_admin", "sub_admin"]} />}>
+              <Route path="/payroll/history" element={<PayrollHistoryPage />} />
+            </Route>
+            <Route element={<ProtectedRoute allowedRoles={["employee"]} />}>
+              <Route path="/my-payroll" element={<Suspense fallback={<div className="py-10 text-center text-sm text-slate-500">Preparing payslip…</div>}><MyPayslipsPage /></Suspense>} />
+            </Route>
+          </Route>
+          <Route element={<ModuleGate moduleKey="overtime" />}>
+            <Route path="/overtime" element={<OvertimePage />} />
+          </Route>
+          <Route element={<ModuleGate moduleKey="leave" />}>
+            <Route path="/leave" element={<LeavePage />} />
+          </Route>
+          <Route element={<ModuleGate moduleKey="reports" />}>
+            <Route path="/workforce/reports" element={<WorkforceReportsPage />} />
+          </Route>
+          <Route element={<ModuleGate moduleKey="compliance" />}>
+            <Route path="/compliance" element={<CompliancePage />} />
+          </Route>
 
           <Route path="*" element={<NotFoundPage />} />
         </Route>

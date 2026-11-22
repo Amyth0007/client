@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import toast from "react-hot-toast";
 import {
   LayoutDashboard,
@@ -14,6 +14,11 @@ import {
   X,
   Building2,
   CalendarCheck,
+  Clock3,
+  Wallet,
+  Timer,
+  Umbrella,
+  ChevronDown,
 } from "lucide-react";
 import { useAuth } from "../../modules/auth/AuthContext.js";
 import { Button } from "../common/Button.js";
@@ -23,16 +28,18 @@ import { userCanAccessModule } from "../../modules/platform/module-registry.js";
 export function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const moduleEnabled = (moduleKey: "reports" | "customers" | "invoices" | "payments" | "recovery" | "commitments" | "gmail" | "settings" | "attendance") =>
-    !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false);
+  const moduleEnabled = (moduleKey: "reports" | "customers" | "invoices" | "payments" | "recovery" | "commitments" | "gmail" | "settings" | "attendance" | "workforce" | "payroll" | "overtime" | "leave" | "compliance") =>
+    !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
 
   const handleLogout = () => setLogoutModalOpen(true);
 
   const confirmLogout = async () => {
-    const destination = user?.role === "employee" || user?.role === "field_recovery" || user?.role === "accounts_manager" ? "/employee-login" : "/login";
+    const destination = user?.role === "employee" || user?.role === "field_recovery" || user?.role === "accounts_manager" || user?.role === "sub_admin" || user?.role === "guard" ? "/employee-login" : "/login";
     setIsLoggingOut(true);
     try {
       await logout();
@@ -49,24 +56,67 @@ export function AppLayout() {
     ? "Super Admin"
     : user?.role === "org_admin"
       ? "Organization Admin"
+      : user?.role === "sub_admin"
+        ? user.customRoleName || "Subadmin"
       : user?.role === "accounts_manager"
         ? "Account Manager"
-        : user?.role === "employee" ? "Employee" : "Field Executive";
+        : user?.role === "guard" ? "Guard" : user?.role === "employee" ? "Employee" : "Field Executive";
 
-  const navItems = user?.role === "super_admin" ? [
-    { label: "Platform admin", path: "/platform", icon: Building2 },
-  ] : [
-    ...(moduleEnabled("reports") ? [{ label: "Dashboard", path: "/dashboard", icon: LayoutDashboard }] : []),
-    ...(moduleEnabled("recovery") ? [{ label: "Recovery", path: "/recovery", icon: Target }] : []),
-    ...(moduleEnabled("invoices") ? [{ label: "Invoices", path: "/invoices", icon: FileText }] : []),
-    ...(moduleEnabled("payments") ? [{ label: "Payments", path: "/payments", icon: CreditCard }] : []),
-    ...(moduleEnabled("commitments") ? [{ label: "Commitments", path: "/commitments", icon: Handshake }] : []),
-    ...(moduleEnabled("customers") ? [{ label: "Customers", path: "/customers", icon: Users }] : []),
-    ...(moduleEnabled("settings") ? [{ label: "Settings", path: "/settings", icon: Settings }] : []),
-    ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
-  ];
-  const mobilePrimaryItems = navItems.length > 4 ? navItems.slice(0, 3) : navItems;
-  const mobileOverflowItems = navItems.slice(mobilePrimaryItems.length);
+  const navGroups = user?.role === "guard" ? [{ id: "guard", label: "Attendance", icon: CalendarCheck, items: [{ label: "Guard station", path: "/guard/attendance", icon: CalendarCheck }] }] : user?.role === "super_admin" ? [{
+    id: "platform",
+    label: "Platform",
+    icon: Building2,
+    items: [{ label: "Platform admin", path: "/platform", icon: Building2 }],
+  }] : [
+    {
+      id: "payment-recovery",
+      label: "Payment Recovery",
+      icon: Target,
+      items: [
+        ...(moduleEnabled("reports") ? [{ label: "Overview", path: "/dashboard", icon: LayoutDashboard }] : []),
+        ...(moduleEnabled("customers") ? [{ label: "Customers", path: "/customers", icon: Users }] : []),
+        ...(moduleEnabled("invoices") ? [{ label: "Invoices", path: "/invoices", icon: FileText }] : []),
+        ...(moduleEnabled("payments") ? [{ label: "Payments", path: "/payments", icon: CreditCard }] : []),
+        ...(moduleEnabled("recovery") ? [{ label: "Recovery", path: "/recovery", icon: Target }] : []),
+        ...(moduleEnabled("commitments") ? [{ label: "Commitments", path: "/commitments", icon: Handshake }] : []),
+      ],
+    },
+    {
+      id: "workforce",
+      label: "Workforce",
+      icon: CalendarCheck,
+      items: [
+        ...(moduleEnabled("workforce") ? [{ label: "Employees", path: "/workforce", icon: Users }, { label: "Shifts", path: "/workforce/shifts", icon: Clock3 }] : []),
+        ...(moduleEnabled("payroll") ? [user?.role === "employee" ? { label: "My payslips", path: "/my-payroll", icon: Wallet } : { label: "Earnings & pay", path: "/payroll", icon: Wallet }] : []),
+        ...(moduleEnabled("overtime") ? [{ label: "Overtime", path: "/overtime", icon: Timer }] : []),
+        ...(moduleEnabled("leave") ? [{ label: user?.role === "employee" ? "My leave" : "Leave & approvals", path: "/leave", icon: Umbrella }] : []),
+        ...(moduleEnabled("compliance") && user?.role !== "employee" ? [{ label: "Compliance rules", path: "/compliance", icon: FileText }] : []),
+        ...(moduleEnabled("reports") && ["workforce", "payroll", "attendance", "overtime", "leave"].some((key) => moduleEnabled(key as "workforce" | "payroll" | "attendance" | "overtime" | "leave")) ? [{ label: "Workforce reports", path: "/workforce/reports", icon: FileText }] : []),
+        ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
+      ],
+    },
+    {
+      id: "workspace",
+      label: "Workspace",
+      icon: Settings,
+      items: [
+        ...(moduleEnabled("settings") ? [{ label: "Settings & team", path: "/settings", icon: Settings }] : []),
+      ],
+    },
+  ].filter((group) => group.items.length > 0);
+
+  const allNavItems = navGroups.flatMap((group) => group.items);
+  const mobilePrimaryItems = allNavItems.slice(0, allNavItems.length <= 5 ? 5 : 4);
+  const mobileOverflowGroups = navGroups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !mobilePrimaryItems.some((primary) => primary.path === item.path)),
+  })).filter((group) => group.items.length > 0);
+
+  const isGroupActive = (group: (typeof navGroups)[number]) => group.items.some((item) =>
+    location.pathname === item.path || location.pathname.startsWith(`${item.path}/`),
+  );
+  const isGroupOpen = (group: (typeof navGroups)[number]) =>
+    collapsedGroups[group.id] === undefined ? isGroupActive(group) || group.id === "payment-recovery" : !collapsedGroups[group.id];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex">
@@ -97,26 +147,37 @@ export function AppLayout() {
           </div>
         )}
 
-        {/* Nav Links */}
-        <nav className="flex-1 space-y-1 px-3 py-4 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-indigo-50 text-indigo-600"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                  }`
-                }
+        {/* Product areas and their available screens */}
+        <nav aria-label="Main navigation" className="flex-1 space-y-4 px-3 py-4 overflow-y-auto">
+          {navGroups.map((group) => {
+            const GroupIcon = group.icon;
+            const expanded = isGroupOpen(group);
+            return <section key={group.id}>
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setCollapsedGroups((current) => ({ ...current, [group.id]: expanded }))}
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider transition-colors ${isGroupActive(group) ? "text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span>{item.label}</span>
-              </NavLink>
-            );
+                <GroupIcon className="h-4 w-4 shrink-0" />
+                <span className="flex-1">{group.label}</span>
+                <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? "rotate-0" : "-rotate-90"}`} />
+              </button>
+              {expanded && <div className="mt-1 space-y-1 pl-2">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.path === "/dashboard"}
+                    className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${isActive ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span>{item.label}</span>
+                  </NavLink>;
+                })}
+              </div>}
+            </section>;
           })}
         </nav>
 
@@ -150,11 +211,10 @@ export function AppLayout() {
             </div>
             <span className="font-bold text-slate-900 tracking-tight text-sm">Recovr</span>
           </div>
-          {user?.organization && (
-            <span className="text-xs font-semibold text-slate-700 truncate max-w-[150px]">
-              {user.organization.name}
-            </span>
-          )}
+          <div className="flex min-w-0 items-center gap-2">
+            {user?.organization && <span className="max-w-[150px] truncate text-xs font-semibold text-slate-700">{user.organization.name}</span>}
+            {!mobileOverflowGroups.length && <button type="button" onClick={handleLogout} title="Sign out" aria-label="Sign out" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"><LogOut className="h-4 w-4" /></button>}
+          </div>
         </header>
 
         {/* Page Content */}
@@ -167,13 +227,13 @@ export function AppLayout() {
       <nav aria-label="Primary navigation" className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-40 flex items-stretch h-16 px-1 shadow-lg">
         {mobilePrimaryItems.map((item) => {
           const Icon = item.icon;
-          return <NavLink key={item.path} to={item.path} className={({ isActive }) => `flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
+          return <NavLink key={item.path} to={item.path} end={item.path === "/dashboard" || item.path === "/platform"} className={({ isActive }) => `flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-semibold ${isActive ? "text-indigo-700" : "text-slate-700"}`}>
             <Icon className="h-5 w-5 shrink-0" /><span className="max-w-full truncate">{item.label}</span>
           </NavLink>;
         })}
-        <button onClick={() => setMobileMenuOpen(true)} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-semibold text-slate-700 hover:text-slate-800">
+        {mobileOverflowGroups.length > 0 && <button onClick={() => setMobileMenuOpen(true)} aria-expanded={mobileMenuOpen} className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[10px] font-semibold ${mobileOverflowGroups.some((group) => group.items.some((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`))) ? "text-indigo-700" : "text-slate-700 hover:text-slate-800"}`}>
           <MoreHorizontal className="h-5 w-5" /><span>More</span>
-        </button>
+        </button>}
       </nav>
       {/* Mobile "More" Slide-up Drawer */}
       {mobileMenuOpen && (
@@ -192,13 +252,18 @@ export function AppLayout() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3 py-4">
-              {mobileOverflowItems.map((item) => {
-                const Icon = item.icon;
-                return <Link key={item.path} to={item.path} onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-xs font-medium text-slate-700 hover:bg-slate-50">
-                  <Icon className="h-5 w-5 text-indigo-600" /><span>{item.label}</span>
-                </Link>;
-              })}
+            <div className="max-h-[65vh] space-y-5 overflow-y-auto py-4">
+              {mobileOverflowGroups.map((group) => <section key={group.id}>
+                <h2 className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">{group.label}</h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    return <Link key={item.path} to={item.path} onClick={() => setMobileMenuOpen(false)} className={`flex items-center gap-3 rounded-xl border p-3 text-xs font-medium ${location.pathname === item.path || location.pathname.startsWith(`${item.path}/`) ? "border-indigo-200 bg-indigo-50 text-indigo-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
+                      <Icon className="h-5 w-5 shrink-0 text-indigo-600" /><span>{item.label}</span>
+                    </Link>;
+                  })}
+                </div>
+              </section>)}
 
               <button
                 onClick={() => {

@@ -9,10 +9,12 @@ import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
 import { Input } from "../../components/common/Input.js";
-import { Select } from "../../components/common/Select.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
+import { Tabs } from "../../components/common/Tabs.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
 import { ORGANIZATION_MODULES, organizationModuleEnabled, type OrganizationModuleKey } from "../platform/module-registry.js";
+import { ACTION_PERMISSIONS } from "../platform/action-permission-registry.js";
 
 export function SettingsPage() {
   const { user } = useAuth();
@@ -26,7 +28,11 @@ export function SettingsPage() {
   const [isManagingGmail, setIsManagingGmail] = useState(false);
   const [permissionsTarget, setPermissionsTarget] = useState<any>(null);
   const [permissionDraft, setPermissionDraft] = useState<string[]>([]);
+  const [actionPermissionDraft, setActionPermissionDraft] = useState<string[]>([]);
+  const [scopeDraft, setScopeDraft] = useState<{ mode: "organization" | "selected"; departmentIds: string[]; locationIds: string[] }>({ mode: "organization", departmentIds: [], locationIds: [] });
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
+  const [customRoleForm, setCustomRoleForm] = useState<{ id: string; name: string; description: string; modules: string[]; actions: string[] }>({ id: "", name: "", description: "", modules: [], actions: [] });
+  const [settingsTab, setSettingsTab] = useState("organization");
 
   const isOrgAdmin = user?.role === "org_admin" || user?.role === "super_admin";
   const canManageGmail = user?.role === "org_admin";
@@ -60,12 +66,16 @@ export function SettingsPage() {
     queryFn: () => (isOrgAdmin ? api.listEmployees({ limit: 50 }) : null),
     enabled: isOrgAdmin,
   });
+  const { data: customRoles = [] } = useQuery({ queryKey: ["custom-roles"], queryFn: () => api.listCustomRoles(), enabled: isOrgAdmin });
+  const { data: workforceDepartments = [] } = useQuery({ queryKey: ["workforce-departments"], queryFn: () => api.listWorkforceDepartments(), enabled: isOrgAdmin && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "workforce") });
+  const { data: attendanceConfig } = useQuery({ queryKey: ["attendance-config"], queryFn: () => api.getAttendanceConfig(), enabled: isOrgAdmin && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "attendance") });
 
   // Org form
-  const { register: regOrg, handleSubmit: handleOrgSubmit } = useForm({
+  const { register: regOrg, handleSubmit: handleOrgSubmit, setValue: setOrgValue, watch: watchOrg } = useForm({
     values: {
       name: organization?.name ?? "",
       legalName: organization?.legalName ?? "",
+      address: organization?.address ?? "",
       gstin: organization?.gstin ?? "",
       timezone: organization?.timezone ?? "Asia/Kolkata",
     },
@@ -77,6 +87,7 @@ export function SettingsPage() {
     handleSubmit: handleEmpSubmit,
     reset: resetEmpForm,
     watch: watchEmp,
+    setValue: setEmpValue,
     formState: { errors: empErrors },
   } = useForm({
     defaultValues: {
@@ -85,6 +96,8 @@ export function SettingsPage() {
       role: "field_recovery",
       temporaryPassword: "",
       modulePermissions: [] as string[],
+      actionPermissions: [] as string[],
+      customRoleId: "",
     },
   });
 
@@ -128,7 +141,10 @@ export function SettingsPage() {
   const onAddEmployee = async (values: any) => {
     setIsCreatingEmployee(true);
     try {
-      const payload = { ...values, modulePermissions: values.role === "org_admin" ? undefined : values.modulePermissions ?? [] };
+      const selectedModules = (values.modulePermissions ?? []).filter((module: string) => values.role !== "sub_admin" || module !== "settings");
+      const payload = values.role === "sub_admin" && values.customRoleId
+        ? { ...values, modulePermissions: [], actionPermissions: [], customRoleId: values.customRoleId }
+        : { ...values, modulePermissions: values.role === "org_admin" ? undefined : selectedModules, actionPermissions: values.role === "sub_admin" ? (values.actionPermissions ?? []).filter((permission: string) => selectedModules.includes(ACTION_PERMISSIONS.find((item) => item.key === permission)?.module ?? "")) : [], customRoleId: null };
       await api.createEmployee(payload);
       toast.success("Employee created successfully!");
       setEmployeeModalOpen(false);
@@ -141,17 +157,36 @@ export function SettingsPage() {
     }
   };
 
+  const saveCustomRole = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const payload = { name: customRoleForm.name, description: customRoleForm.description, modulePermissions: customRoleForm.modules, actionPermissions: customRoleForm.actions };
+      if (customRoleForm.id) await api.updateCustomRole(customRoleForm.id, payload); else await api.createCustomRole(payload);
+      toast.success(customRoleForm.id ? "Custom role updated" : "Custom role created");
+      setCustomRoleForm({ id: "", name: "", description: "", modules: [], actions: [] });
+      await queryClient.invalidateQueries({ queryKey: ["custom-roles"] });
+      await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+    } catch (error: any) { toast.error(error?.message || "Could not save custom role"); }
+  };
+  const archiveRole = async (id: string) => {
+    try { await api.archiveCustomRole(id); toast.success("Custom role archived"); await queryClient.invalidateQueries({ queryKey: ["custom-roles"] }); }
+    catch (error: any) { toast.error(error?.message || "Could not archive role"); }
+  };
+
   const editEmployeePermissions = (employee: any) => {
     setPermissionsTarget(employee);
     const modules = organization?.modules ?? user?.organization?.modules;
-    setPermissionDraft(Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
+    setPermissionDraft(Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && !(employee.role === "sub_admin" && key === "settings") && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
+    setActionPermissionDraft(employee.actionPermissions ?? []);
+    setScopeDraft(employee.workforceScope ?? { mode: "organization", departmentIds: [], locationIds: [] });
   };
   const saveEmployeePermissions = async () => {
     if (!permissionsTarget) return;
     setIsSavingPermissions(true);
     try {
-      await api.updateEmployee(permissionsTarget.id, { modulePermissions: permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey)) });
-      toast.success("Screen access updated");
+      const modules = permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey));
+      await api.updateEmployee(permissionsTarget.id, { modulePermissions: modules, ...(permissionsTarget.role === "sub_admin" ? { actionPermissions: actionPermissionDraft.filter((permission) => modules.includes(ACTION_PERMISSIONS.find((item) => item.key === permission)?.module ?? "")), workforceScope: scopeDraft } : {}) });
+      toast.success("Access permissions updated");
       setPermissionsTarget(null);
       await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
     } catch (error: any) { toast.error(error?.message || "Could not update screen access"); }
@@ -169,14 +204,16 @@ export function SettingsPage() {
     }
   };
 
-  const handleChangeEmployeeRole = async (emp: any, role: string) => {
+  const handleChangeEmployeeRoleChoice = async (emp: any, choice: string) => {
     try {
-      await api.updateEmployee(emp.id, { role });
+      const isCustomSubadminRole = choice.startsWith("sub_admin:");
+      await api.updateEmployee(emp.id, isCustomSubadminRole
+        ? { role: "sub_admin", customRoleId: choice.slice("sub_admin:".length) }
+        : { role: choice, ...(choice === "sub_admin" ? { customRoleId: null } : {}) });
       toast.success(`${emp.name}'s role updated`);
-      queryClient.invalidateQueries({ queryKey: ["employees-list"] });
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to update employee role");
-    }
+      await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+      return true;
+    } catch (error: any) { toast.error(error?.message || "Failed to update employee role"); return false; }
   };
 
   const handleResetEmployeePassword = async (emp: any) => {
@@ -212,8 +249,13 @@ export function SettingsPage() {
         description="Configure organization profile, recovery policies, and employee permissions"
       />
 
+      <Tabs ariaLabel="Settings sections" activeTab={settingsTab} onChange={setSettingsTab} tabs={[
+        { id: "organization", label: "Organization" },
+        ...(isOrgAdmin ? [{ id: "team", label: "Team & access" }, { id: "roles", label: "Subadmin roles" }] : []),
+      ]} />
+
       {/* Organization Profile */}
-      <Card title="Organization Profile" subtitle="Commercial identity and tenant details">
+      {settingsTab === "organization" && <Card title="Organization Profile" subtitle="Commercial identity and tenant details">
         {orgLoading ? (
           <div className="h-32 bg-slate-50 animate-pulse rounded-xl" />
         ) : (
@@ -231,22 +273,25 @@ export function SettingsPage() {
                 {...regOrg("legalName")}
               />
 
+              <Input label="Company Address (shown on payslips)" disabled={!isOrgAdmin} {...regOrg("address")} />
+
               <Input
                 label="GSTIN"
                 disabled={!isOrgAdmin}
                 {...regOrg("gstin")}
               />
 
-              <Select
+              <CustomSelect
                 label="Operational Timezone"
                 disabled={!isOrgAdmin}
+                value={watchOrg("timezone")}
+                onChange={(event) => setOrgValue("timezone", event.target.value, { shouldDirty: true })}
                 options={[
                   { value: "Asia/Kolkata", label: "Asia/Kolkata (IST +5:30)" },
                   { value: "UTC", label: "UTC (+0:00)" },
                   { value: "Asia/Dubai", label: "Asia/Dubai (+4:00)" },
                   { value: "Asia/Singapore", label: "Asia/Singapore (+8:00)" },
                 ]}
-                {...regOrg("timezone")}
               />
             </div>
 
@@ -259,9 +304,9 @@ export function SettingsPage() {
             )}
           </form>
         )}
-      </Card>
+      </Card>}
 
-      {gmailEnabled && <Card title="Gmail integration" subtitle="Send payment reminders and invoice documents from your organization Gmail account">
+      {settingsTab === "organization" && gmailEnabled && <Card title="Gmail integration" subtitle="Send payment reminders and invoice documents from your organization Gmail account">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="rounded-lg bg-indigo-50 p-2 text-indigo-700"><Mail className="h-5 w-5" /></div>
@@ -281,7 +326,7 @@ export function SettingsPage() {
       </Card>}
 
       {/* Employee Management Section (Only visible to Org Admins) */}
-      {isOrgAdmin && (
+      {settingsTab === "team" && isOrgAdmin && (
         <Card
           title="Team & Employee Access"
           subtitle="Manage user roles, credentials, and field executive accounts"
@@ -317,19 +362,15 @@ export function SettingsPage() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 text-slate-700">
                         {emp.id === user?.id ? (
-                          emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : emp.role === "employee" ? "Employee" : "Organization Admin"
+                          emp.customRoleName || (emp.role === "sub_admin" ? "Subadmin" : emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : emp.role === "employee" ? "Employee" : emp.role === "org_admin" ? "Organization Admin" : "Super Admin")
                         ) : (
-                          <select
-                            value={emp.role}
-                            onChange={(event) => void handleChangeEmployeeRole(emp, event.target.value)}
-                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs capitalize"
-                            aria-label={`Role for ${emp.name}`}
-                          >
-                            <option value="org_admin">Organization Admin</option>
-                            <option value="accounts_manager">Account Manager</option>
-                            <option value="field_recovery">Field Executive</option>
-                            <option value="employee">Employee</option>
-                          </select>
+                          <CustomSelect
+                            portal
+                            className="min-w-[190px]"
+                            value={emp.role === "sub_admin" && emp.customRoleId ? `sub_admin:${emp.customRoleId}` : emp.role}
+                            onChange={(event) => void handleChangeEmployeeRoleChoice(emp, event.target.value)}
+                            options={[{ value: "org_admin", label: "Organization Admin" }, { value: "sub_admin", label: "Subadmin · Individual permissions" }, ...[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => ({ value: `sub_admin:${role.id}`, label: `Subadmin · ${role.name}` })), { value: "accounts_manager", label: "Account Manager" }, { value: "field_recovery", label: "Field Executive" }, { value: "guard", label: "Guard" }, { value: "employee", label: "Employee"}]}
+                          />
                         )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 text-center">
@@ -364,6 +405,17 @@ export function SettingsPage() {
         </Card>
       )}
 
+      {settingsTab === "roles" && isOrgAdmin && <Card title="Custom subadmin roles" subtitle="Create reusable, tenant-scoped module and action bundles. Role changes apply to assigned subadmins immediately.">
+        <form onSubmit={(event) => void saveCustomRole(event)} className="grid gap-3 sm:grid-cols-2">
+          <Input label="Role name" required minLength={2} value={customRoleForm.name} onChange={(event) => setCustomRoleForm({ ...customRoleForm, name: event.target.value })} />
+          <Input label="Description" value={customRoleForm.description} onChange={(event) => setCustomRoleForm({ ...customRoleForm, description: event.target.value })} />
+          <fieldset className="rounded-xl border p-3 sm:col-span-2"><legend className="px-1 text-sm font-semibold">Enabled modules</legend><div className="grid gap-2 sm:grid-cols-3">{ORGANIZATION_MODULES.filter((module) => module.key !== "settings").sort((a, b) => a.name.localeCompare(b.name)).map((module) => { const enabled = organizationModuleEnabled(availableOrganizationModules, module.key); const checked = customRoleForm.modules.includes(module.key); return <label key={module.key} className={`flex items-center gap-2 text-xs ${enabled ? "" : "opacity-50"}`}><input type="checkbox" disabled={!enabled} checked={checked} onChange={(event) => setCustomRoleForm((current) => ({ ...current, modules: event.target.checked ? [...current.modules, module.key] : current.modules.filter((key) => key !== module.key), actions: event.target.checked ? current.actions : current.actions.filter((key) => ACTION_PERMISSIONS.find((permission) => permission.key === key)?.module !== module.key) }))} />{module.name}</label>; })}</div></fieldset>
+          <fieldset className="rounded-xl border p-3 sm:col-span-2"><legend className="px-1 text-sm font-semibold">Allowed actions</legend>{customRoleForm.modules.length === 0 ? <p className="text-xs text-slate-500">Choose an enabled module first.</p> : <div className="grid gap-3 md:grid-cols-2">{ORGANIZATION_MODULES.filter((module) => customRoleForm.modules.includes(module.key)).sort((a, b) => a.name.localeCompare(b.name)).map((module) => { const moduleActions = ACTION_PERMISSIONS.filter((permission) => permission.module === module.key).sort((a, b) => a.name.localeCompare(b.name)); return moduleActions.length ? <div key={module.key} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3"><h3 className="mb-2 text-xs font-semibold text-slate-800">{module.name}</h3><div className="space-y-2">{moduleActions.map((permission) => <label key={permission.key} className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={customRoleForm.actions.includes(permission.key)} onChange={(event) => setCustomRoleForm((current) => ({ ...current, actions: event.target.checked ? [...current.actions, permission.key] : current.actions.filter((key) => key !== permission.key) }))} />{permission.name}</label>)}</div></div> : null; })}</div>}</fieldset>
+          <div className="flex justify-end gap-2 sm:col-span-2">{customRoleForm.id && <Button type="button" variant="outline" onClick={() => setCustomRoleForm({ id: "", name: "", description: "", modules: [], actions: [] })}>Cancel edit</Button>}<Button type="submit">{customRoleForm.id ? "Save role" : "Create role"}</Button></div>
+        </form>
+        <div className="mt-4 divide-y">{[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{role.name}</p><p className="text-xs text-slate-500">{role.description || "No description"} · {role.modulePermissions.length} module(s) · {role.actionPermissions.length} action(s)</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setCustomRoleForm({ id: role.id, name: role.name, description: role.description, modules: role.modulePermissions, actions: role.actionPermissions })}>Edit</Button><Button size="sm" variant="secondary" onClick={() => void archiveRole(role.id)}>Archive</Button></div></div>)}</div>
+      </Card>}
+
       {/* Add Employee Modal */}
       <Modal
         isOpen={employeeModalOpen}
@@ -389,19 +441,36 @@ export function SettingsPage() {
             {...regEmp("email", { required: "Email is required" })}
           />
 
-          <Select
+          <CustomSelect
             label="Role & Permissions"
             required
+            value={watchEmp("role") === "sub_admin" && watchEmp("customRoleId") ? `sub_admin:${watchEmp("customRoleId")}` : watchEmp("role")}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value.startsWith("sub_admin:")) {
+                setEmpValue("role", "sub_admin", { shouldDirty: true });
+                setEmpValue("customRoleId", value.slice("sub_admin:".length), { shouldDirty: true });
+              } else {
+                setEmpValue("role", value, { shouldDirty: true });
+                if (value !== "sub_admin") setEmpValue("customRoleId", "", { shouldDirty: true });
+              }
+            }}
             options={[
               { value: "field_recovery", label: "Field Executive (Assigned Visits & Follow-up)" },
+              { value: "guard", label: "Guard (Employee check-in / check-out on mobile)" },
               { value: "employee", label: "Employee (Choose screen access)" },
               { value: "accounts_manager", label: "Account Manager (Invoices, Payments & Recovery)" },
+              { value: "sub_admin", label: "Subadmin (Manage assigned modules, including Attendance)" },
+              ...customRoles.map((role: any) => ({ value: `sub_admin:${role.id}`, label: `Subadmin · ${role.name}` })),
               { value: "org_admin", label: "Organization Admin (Full Control)" },
             ]}
-            {...regEmp("role")}
           />
 
-          {watchEmp("role") !== "org_admin" && <fieldset className="rounded-xl border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Screens this staff member can access</legend><p className="mb-2 text-xs text-slate-500">Select enabled modules. Greyed options must first be enabled by the platform administrator.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); return <label key={module.key} className={`flex items-start gap-2 rounded-lg p-2 text-xs ${enabledForOrganization ? "hover:bg-slate-50" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" value={module.key} disabled={!enabledForOrganization} {...regEmp("modulePermissions")} /><span><span className="block font-medium text-slate-800">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · enable in Platform Administration" : ""}</span><span className="text-slate-500">{module.description}</span></span></label>; })}</div></fieldset>}
+          {watchEmp("role") === "sub_admin" && <CustomSelect label="Custom permission role (optional)" value={watchEmp("customRoleId")} onChange={(event) => setEmpValue("customRoleId", event.target.value, { shouldDirty: true })} options={[{ value: "", label: "Configure individual permissions below" }, ...customRoles.map((role: any) => ({ value: role.id, label: role.name }))]} />}
+
+          {watchEmp("role") !== "org_admin" && !(watchEmp("role") === "sub_admin" && watchEmp("customRoleId")) && <fieldset className="rounded-xl border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Screens this staff member can access</legend><p className="mb-2 text-xs text-slate-500">Select enabled modules. Subadmins cannot manage organization settings or team access.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); const restrictedForSubAdmin = watchEmp("role") === "sub_admin" && module.key === "settings"; return <label key={module.key} className={`flex items-start gap-2 rounded-lg p-2 text-xs ${enabledForOrganization && !restrictedForSubAdmin ? "hover:bg-slate-50" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" value={module.key} disabled={!enabledForOrganization || restrictedForSubAdmin} {...regEmp("modulePermissions")} /><span><span className="block font-medium text-slate-800">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · enable in Platform Administration" : restrictedForSubAdmin ? " · org admin only" : ""}</span><span className="text-slate-500">{module.description}</span></span></label>; })}</div></fieldset>}
+
+          {watchEmp("role") === "sub_admin" && !watchEmp("customRoleId") && <fieldset className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Allowed actions</legend><p className="mb-2 text-xs text-slate-600">Choose actions inside the modules above. View access is limited to each module’s read-only screens.</p><div className="grid gap-2 sm:grid-cols-2">{ACTION_PERMISSIONS.filter((permission) => (watchEmp("modulePermissions") ?? []).includes(permission.module)).map((permission) => <label key={permission.key} className="flex items-center gap-2 rounded-lg bg-white p-2 text-xs text-slate-700"><input type="checkbox" value={permission.key} {...regEmp("actionPermissions")} /><span>{permission.name}</span></label>)}</div>{(watchEmp("modulePermissions") ?? []).length === 0 && <p className="text-xs text-slate-500">Select a module above to see its actions.</p>}</fieldset>}
 
           <Input
             label="Temporary Password"
@@ -441,7 +510,10 @@ export function SettingsPage() {
       </Modal>
 
       <Modal isOpen={Boolean(permissionsTarget)} onClose={() => setPermissionsTarget(null)} title="Staff screen access" description={permissionsTarget ? `Choose the screens ${permissionsTarget.name} can open.` : undefined}>
-        <div className="space-y-4"><p className="text-xs text-slate-600">Screens must also be enabled for the organization by the platform administrator. Disabled modules are shown so you can see why they cannot be assigned.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); return <label key={module.key} className={`flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm ${enabledForOrganization ? "" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" checked={permissionDraft.includes(module.key)} disabled={!enabledForOrganization} onChange={(event) => setPermissionDraft((current) => event.target.checked ? [...current, module.key] : current.filter((key) => key !== module.key))} /><span><span className="block font-medium">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · disabled for organization" : ""}</span><span className="text-xs text-slate-500">{module.description}</span></span></label>; })}</div><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button><Button isLoading={isSavingPermissions} onClick={() => void saveEmployeePermissions()}>Save access</Button></div></div>
+        <div className="space-y-4"><p className="text-xs text-slate-600">Screens must also be enabled for the organization by the platform administrator. Subadmins cannot manage organization settings or team access.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); const restrictedForSubAdmin = permissionsTarget?.role === "sub_admin" && module.key === "settings"; return <label key={module.key} className={`flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm ${enabledForOrganization && !restrictedForSubAdmin ? "" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" checked={permissionDraft.includes(module.key)} disabled={!enabledForOrganization || restrictedForSubAdmin} onChange={(event) => setPermissionDraft((current) => event.target.checked ? [...current, module.key] : current.filter((key) => key !== module.key))} /><span><span className="block font-medium">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · disabled for organization" : restrictedForSubAdmin ? " · org admin only" : ""}</span><span className="text-xs text-slate-500">{module.description}</span></span></label>; })}</div>
+          {permissionsTarget?.role === "sub_admin" && <fieldset className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Allowed actions</legend><p className="mb-2 text-xs text-slate-600">Action access is checked by the API and is limited to the selected modules.</p><div className="grid gap-2 sm:grid-cols-2">{ACTION_PERMISSIONS.filter((permission) => permissionDraft.includes(permission.module)).map((permission) => <label key={permission.key} className="flex items-center gap-2 rounded-lg bg-white p-2 text-xs text-slate-700"><input type="checkbox" checked={actionPermissionDraft.includes(permission.key)} onChange={(event) => setActionPermissionDraft((current) => event.target.checked ? [...current, permission.key] : current.filter((key) => key !== permission.key))} /><span>{permission.name}</span></label>)}</div></fieldset>}
+          {permissionsTarget?.role === "sub_admin" && <fieldset className="rounded-xl border border-amber-100 bg-amber-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Workforce data scope</legend><p className="mb-3 text-xs text-slate-600">Organization-wide access is the default. Selected departments and locations are combined as an intersection; an unselected dimension stays unrestricted.</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={scopeDraft.mode === "organization"} onChange={() => setScopeDraft({ ...scopeDraft, mode: "organization" })} />All organization workforce records</label><label className="mt-2 flex items-center gap-2 text-sm"><input type="radio" checked={scopeDraft.mode === "selected"} onChange={() => setScopeDraft({ ...scopeDraft, mode: "selected" })} />Restrict to selected departments or locations</label>{scopeDraft.mode === "selected" && <div className="mt-3 grid gap-4 sm:grid-cols-2"><div><p className="mb-2 text-xs font-semibold">Departments</p>{workforceDepartments.length ? workforceDepartments.map((item: any) => <label key={item.id} className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={scopeDraft.departmentIds.includes(item.id)} onChange={(event) => setScopeDraft({ ...scopeDraft, departmentIds: event.target.checked ? [...scopeDraft.departmentIds, item.id] : scopeDraft.departmentIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <p className="text-xs text-slate-500">No departments available.</p>}</div><div><p className="mb-2 text-xs font-semibold">Work locations</p>{attendanceConfig?.locations?.length ? attendanceConfig.locations.map((item: any) => <label key={item.id} className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={scopeDraft.locationIds.includes(item.id)} onChange={(event) => setScopeDraft({ ...scopeDraft, locationIds: event.target.checked ? [...scopeDraft.locationIds, item.id] : scopeDraft.locationIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <p className="text-xs text-slate-500">Enable Attendance and configure office locations to scope by location.</p>}</div></div>}</fieldset>}
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button><Button isLoading={isSavingPermissions} onClick={() => void saveEmployeePermissions()}>Save access</Button></div></div>
       </Modal>
     </div>
   );

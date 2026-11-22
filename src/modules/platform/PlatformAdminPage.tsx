@@ -33,11 +33,32 @@ export function PlatformAdminPage() {
   const [statusTarget, setStatusTarget] = useState<Organization | null>(null);
   const [permissionsTarget, setPermissionsTarget] = useState<Organization | null>(null);
   const [statusReason, setStatusReason] = useState("");
+  const [complianceReviewTarget, setComplianceReviewTarget] = useState<{ rule: any; decision: "validated" | "rejected" } | null>(null);
+  const [legalReviewReference, setLegalReviewReference] = useState("");
   const { data, isLoading, isError } = useQuery({
     queryKey: ["platform-organizations"],
     queryFn: () => api.listOrganizations({ page: "1", limit: "100", sort: "-createdAt" }),
   });
   const organizations = (data?.data ?? []) as Organization[];
+  const { data: complianceQueue = [], refetch: refetchCompliance } = useQuery({
+    queryKey: ["platform-compliance-pending"],
+    queryFn: () => api.listPendingComplianceRules(),
+  });
+  const reviewCompliance = async (rule: any, decision: "validated" | "rejected") => {
+    setComplianceReviewTarget({ rule, decision });
+    setLegalReviewReference("");
+  };
+  const submitComplianceReview = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!complianceReviewTarget || legalReviewReference.trim().length < 5) return;
+    try {
+      const { rule, decision } = complianceReviewTarget;
+      await api.reviewComplianceRule(rule.organization.id, rule.id, { decision, legalReviewReference: legalReviewReference.trim() });
+      toast.success(decision === "validated" ? "Rule version validated" : "Rule version returned for correction");
+      setComplianceReviewTarget(null);
+      await refetchCompliance();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Review failed"); }
+  };
 
   const createMutation = useMutation({
     mutationFn: () => api.createOrganization({
@@ -117,6 +138,10 @@ export function PlatformAdminPage() {
         </Card>
       )}
 
+      <Card title="Compliance rule review" subtitle="Review source-backed rule versions before organizations can activate them.">
+        {complianceQueue.length === 0 ? <p className="text-sm text-slate-500">No rule versions are awaiting review.</p> : <div className="divide-y">{complianceQueue.map((rule: any) => <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="font-medium">{rule.name} · {rule.organization?.name ?? "Organization"}</p><p className="mt-1 text-xs text-slate-500">{rule.ruleCode} · {rule.jurisdiction} {rule.regionCode} · {rule.industry} · {rule.employeeCategory} · v{rule.version} · from {rule.effectiveFrom}</p><div className="mt-1 flex flex-wrap gap-2">{rule.sources.map((source: any) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="text-xs text-indigo-700 underline">{source.title}</a>)}</div></div><div className="flex gap-2"><Button size="sm" onClick={() => void reviewCompliance(rule, "validated")}>Validate</Button><Button size="sm" variant="outline" onClick={() => void reviewCompliance(rule, "rejected")}>Return</Button></div></div>)}</div>}
+      </Card>
+
       <Card title="Organizations" subtitle={`${data?.meta?.total ?? organizations.length} organizations`}>
         {isLoading ? <p className="text-sm text-slate-600">Loading organizations…</p> : isError ? (
           <p className="text-sm text-rose-600">Could not load organizations. Refresh and try again.</p>
@@ -167,6 +192,9 @@ export function PlatformAdminPage() {
             <Button type="submit" isLoading={statusMutation.isPending}>Confirm status change</Button>
           </div>
         </form>
+      </Modal>
+      <Modal isOpen={Boolean(complianceReviewTarget)} onClose={() => setComplianceReviewTarget(null)} title={complianceReviewTarget?.decision === "validated" ? "Validate compliance rule" : "Return compliance rule"} description="Enter the legal review reference to keep a clear audit record.">
+        <form onSubmit={submitComplianceReview} className="space-y-4"><Input label="Legal review reference" required minLength={5} value={legalReviewReference} onChange={(event) => setLegalReviewReference(event.target.value)} placeholder="Reference, source, or case ID"/><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setComplianceReviewTarget(null)}>Cancel</Button><Button type="submit">{complianceReviewTarget?.decision === "validated" ? "Validate rule" : "Return for correction"}</Button></div></form>
       </Modal>
     </div>
   );

@@ -7,14 +7,20 @@ export type UserProfile = {
   id: string;
   email: string;
   name: string;
-  role: "super_admin" | "org_admin" | "accounts_manager" | "field_recovery" | "employee";
+  role: "super_admin" | "org_admin" | "sub_admin" | "accounts_manager" | "field_recovery" | "employee" | "guard";
   modulePermissions?: Record<string, boolean>;
   modulePermissionsConfigured?: boolean;
+  actionPermissions?: string[];
+  customRoleId?: string | null;
+  customRoleName?: string | null;
+  workforceScope?: { mode: "organization" | "selected"; departmentIds: string[]; locationIds: string[] };
   organizationId: string | null;
   mustChangePassword: boolean;
   organization?: {
     id: string;
     name: string;
+    legalName?: string;
+    address?: string;
     status: string;
     timezone: string;
     currency: string;
@@ -33,13 +39,20 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const AUTH_SYNC_KEY = "payment-recovery-auth-session-change";
+const TAB_ID = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+  ? crypto.randomUUID()
+  : String(Math.random());
 
 function notifyOtherTabs() {
   if (typeof window === "undefined") return;
-  try { localStorage.setItem(AUTH_SYNC_KEY, String(Date.now())); } catch { /* BroadcastChannel remains available where storage is blocked. */ }
+  try {
+    localStorage.setItem(AUTH_SYNC_KEY, JSON.stringify({ senderId: TAB_ID, timestamp: Date.now() }));
+  } catch {
+    /* BroadcastChannel remains available where storage is blocked. */
+  }
   if (typeof BroadcastChannel !== "undefined") {
     const channel = new BroadcastChannel("payment-recovery-auth-session");
-    channel.postMessage("session-changed");
+    channel.postMessage({ senderId: TAB_ID, type: "session-changed" });
     channel.close();
   }
 }
@@ -110,25 +123,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateUser(null);
       queryClient.clear();
     };
-    const onStorage = (event: StorageEvent) => { if (event.key === AUTH_SYNC_KEY) clearThisTab(); };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === AUTH_SYNC_KEY && event.newValue) {
+        try {
+          const payload = JSON.parse(event.newValue);
+          if (payload?.senderId === TAB_ID) return;
+        } catch {
+          // If value is not JSON, proceed with clearing
+        }
+        clearThisTab();
+      }
+    };
     window.addEventListener("auth-session-expired", clearThisTab);
     window.addEventListener("storage", onStorage);
     const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("payment-recovery-auth-session") : null;
-    if (channel) channel.onmessage = clearThisTab;
-    return () => { window.removeEventListener("auth-session-expired", clearThisTab); window.removeEventListener("storage", onStorage); channel?.close(); };
+    if (channel) {
+      channel.onmessage = (event) => {
+        if (event.data?.senderId === TAB_ID) return;
+        clearThisTab();
+      };
+    }
+    return () => {
+      window.removeEventListener("auth-session-expired", clearThisTab);
+      window.removeEventListener("storage", onStorage);
+      channel?.close();
+    };
   }, []);
 
   const login = async (credentials: { email: string; password: string }) => {
     const generation = ++authGenerationRef.current;
     updateUser(null);
     queryClient.clear();
-    notifyOtherTabs();
     // Revoke any refresh cookie left by a previous account on this browser first.
     await api.logout();
     const session = await api.login(credentials);
     if (generation !== authGenerationRef.current) throw new Error("Sign-in was superseded by another session change. Please try again.");
     updateUser(session.user);
     queryClient.clear();
+    notifyOtherTabs();
     return session.user;
   };
 

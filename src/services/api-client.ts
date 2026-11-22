@@ -18,17 +18,54 @@ export type AttendanceOfficeLocation = { id: string; name: string; address: stri
 export type AttendancePolicy = { expectedCheckIn: string; expectedCheckOut: string; gracePeriodMinutes: number; halfDayHours: number; gpsAccuracyThresholdM: number; locationVerificationRequired: boolean; weeklyHolidays: number[]; correctionRequestsEnabled: boolean };
 export type AttendanceRecord = {
   id: string; employeeId: string; attendanceDate: string; officeLocationId: string | null; officeName?: string;
-  employee?: { name: string; email: string } | null; status: "checked_in" | "completed" | "present" | "absent" | "leave"; lateArrival: boolean;
+  shiftId?: string | null; shiftName?: string | null;
+  employee?: { name: string; email: string } | null; status: "checked_in" | "completed" | "present" | "half_day" | "absent" | "leave"; lateArrival: boolean;
   manualAdjustment?: { id: string; reason: string; checkInAt: string | null; checkOutAt: string | null; adjustedBy: string };
-  totalWorkingMinutes: number | null; halfDay: boolean; correctedCheckOutAt: string | null; correctionId: string | null;
+  totalWorkingMinutes: number | null; unpaidBreakMinutes?: number; halfDay: boolean; correctedCheckOutAt: string | null; correctionId: string | null;
   checkIn: { at: string; latitude?: number | null; longitude?: number | null; gpsAccuracyM?: number | null; officeDistanceM?: number | null; locationVerification?: "verified" | "not_enforced"; photoAssetId: string | null; manuallyEntered?: boolean } | null;
   checkOut: { at: string; latitude?: number | null; longitude?: number | null; gpsAccuracyM?: number | null; officeDistanceM?: number | null; locationVerification?: "verified" | "not_enforced"; photoAssetId: string | null; manuallyEntered?: boolean } | null;
 };
 export type AttendanceCorrection = { id: string; attendanceRecordId: string; employeeId: string; attendanceDate?: string; currentCheckInAt?: string | null; currentCheckOutAt?: string | null; requestedCheckInAt: string | null; requestedCheckOutAt: string | null; reason: string; evidenceFileAssetId: string | null; status: "pending" | "approved" | "rejected"; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string; createdAt: string; employee?: { name: string; email: string } | null };
 export type AttendanceDashboard = { date: string; totalEmployees: number; presentToday: number; absentToday: number; lateArrivals: number; currentlyCheckedIn: number; exceptions: number; holiday: boolean };
+export type ShiftSwapRequest = {
+  id: string;
+  shiftDate: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  requesterEmployee?: { id: string; employeeNumber?: string; name?: string } | null;
+  targetEmployee?: { id: string; employeeNumber?: string; name?: string } | null;
+  requesterShift?: { id: string; name: string; startTime: string; endTime: string; crossesMidnight?: boolean } | null;
+  targetShift?: { id: string; name: string; startTime: string; endTime: string; crossesMidnight?: boolean } | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewComment?: string;
+  createdAt: string;
+};
 
 let inMemoryToken: string | null = null;
 let authSessionGeneration = 0;
+let refreshInFlight: Promise<string | null> | null = null;
+
+function refreshAccessToken(expectedGeneration: number): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const response = await fetch(apiUrl("/auth/refresh"), { method: "POST", credentials: "include" });
+        if (!response.ok) return null;
+        const payload = await response.json();
+        const token = payload?.data?.accessToken as string | undefined;
+        if (!token || expectedGeneration !== authSessionGeneration) return null;
+        setAccessToken(token);
+        return token;
+      } catch {
+        return null;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight.then((token) => expectedGeneration === authSessionGeneration ? token : null);
+}
 
 function apiUrl(path: string): string {
   return `/api/v1${path}`;
@@ -103,21 +140,9 @@ async function request<T>(
 
   // Handle 401 and try refresh once
   if (res.status === 401 && requestGeneration === authSessionGeneration && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
-    try {
-      const refreshRes = await fetch(apiUrl("/auth/refresh"), {
-        method: "POST",
-        credentials: "include",
-      });
-      if (refreshRes.ok && requestGeneration === authSessionGeneration) {
-        const refreshData = await refreshRes.json();
-        setAccessToken(refreshData.data.accessToken);
-        return request<T>(path, options, true);
-      } else if (requestGeneration === authSessionGeneration) {
-        notifySessionExpired();
-      }
-    } catch {
-      if (requestGeneration === authSessionGeneration) notifySessionExpired();
-    }
+    const token = await refreshAccessToken(requestGeneration);
+    if (token && requestGeneration === authSessionGeneration) return request<T>(path, options, true);
+    if (requestGeneration === authSessionGeneration) notifySessionExpired();
   }
 
   let body: any;
@@ -218,6 +243,81 @@ export const api = {
     });
     return res.data;
   },
+  listCustomRoles: async () => (await request<any[]>("/users/roles")).data,
+  createCustomRole: async (data: Record<string, unknown>) => (await request<any>("/users/roles", { method: "POST", body: JSON.stringify(data) })).data,
+  updateCustomRole: async (id: string, data: Record<string, unknown>) => (await request<any>(`/users/roles/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
+  archiveCustomRole: async (id: string) => (await request<any>(`/users/roles/${id}`, { method: "DELETE" })).data,
+  listWorkforceEmployees: async (params?: Record<string, unknown>) => {
+    const query = buildQueryString(params);
+    return request<any[]>(`/workforce/employees?${query}`);
+  },
+  listWorkforceLoginAccounts: async () => (await request<any[]>("/workforce/login-accounts")).data,
+  createWorkforceEmployee: async (data: Record<string, unknown>) => {
+    const res = await request<any>("/workforce/employees", { method: "POST", body: JSON.stringify(data) });
+    return res.data;
+  },
+  updateWorkforceEmployee: async (id: string, data: Record<string, unknown>) => {
+    const res = await request<any>(`/workforce/employees/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+    return res.data;
+  },
+  importWorkforceEmployees: async (file: File) => { const body = new FormData(); body.append("file", file); return request<{ createdCount: number; errors: Array<{ row: number; message: string }> }>("/workforce/employees/import", { method: "POST", body }); },
+  listWorkforceDepartments: async () => (await request<any[]>("/workforce/departments")).data,
+  createWorkforceDepartment: async (data: Record<string, unknown>) => (await request<any>("/workforce/departments", { method: "POST", body: JSON.stringify(data) })).data,
+  listWorkforceDesignations: async () => (await request<any[]>("/workforce/designations")).data,
+  createWorkforceDesignation: async (data: Record<string, unknown>) => (await request<any>("/workforce/designations", { method: "POST", body: JSON.stringify(data) })).data,
+  listWorkforceShifts: async () => (await request<{ shifts: any[]; assignments: any[] }>("/workforce/shifts")).data,
+  createWorkforceShift: async (data: Record<string, unknown>) => (await request<any>("/workforce/shifts", { method: "POST", body: JSON.stringify(data) })).data,
+  updateWorkforceShift: async (id: string, data: Record<string, unknown>) => (await request<any>(`/workforce/shifts/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
+  deleteWorkforceShift: async (id: string) => (await request<any>(`/workforce/shifts/${id}`, { method: "DELETE" })).data,
+  assignWorkforceShift: async (data: Record<string, unknown>) => (await request<any>("/workforce/shift-assignments", { method: "POST", body: JSON.stringify(data) })).data,
+  requestShiftSwap: async (data: { targetEmployeeId: string; shiftDate: string; reason: string }) => (await request<any>("/workforce/shift-swaps", { method: "POST", body: JSON.stringify(data) })).data,
+  listShiftSwaps: async (mine = false) => (await request<any[]>(`/workforce/shift-swaps${mine ? "/mine" : ""}`)).data,
+  reviewShiftSwap: async (id: string, decision: "approved" | "rejected", comment?: string) => (await request<any>(`/workforce/shift-swaps/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision, comment }) })).data,
+  cancelShiftSwap: async (id: string) => (await request<any>(`/workforce/shift-swaps/${id}`, { method: "DELETE" })).data,
+  getPayrollCompensation: async () => (await request<any>("/payroll/compensation")).data,
+  listPayrollEmployees: async (params?: Record<string, unknown>) => request<any[]>(`/payroll/employees?${buildQueryString(params)}`),
+  createPayrollComponent: async (data: Record<string, unknown>) => (await request<any>("/payroll/components", { method: "POST", body: JSON.stringify(data) })).data,
+  createPayStructure: async (data: Record<string, unknown>) => (await request<any>("/payroll/structures", { method: "POST", body: JSON.stringify(data) })).data,
+  updatePayStructure: async (id: string, data: Record<string, unknown>) => (await request<any>(`/payroll/structures/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
+  deletePayStructure: async (id: string) => (await request<any>(`/payroll/structures/${id}`, { method: "DELETE" })).data,
+  assignCompensation: async (data: Record<string, unknown>) => (await request<any>("/payroll/assignments", { method: "POST", body: JSON.stringify(data) })).data,
+  updateCompensationAssignment: async (id: string, data: Record<string, unknown>) => (await request<any>(`/payroll/assignments/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
+  deleteCompensationAssignment: async (id: string) => (await request<any>(`/payroll/assignments/${id}`, { method: "DELETE" })).data,
+  listDailyEarnings: async (params?: Record<string, unknown>) => (await request<any[]>(`/payroll/daily-earnings?${buildQueryString(params)}`)).data,
+  createDailyEarning: async (data: Record<string, unknown>) => (await request<any>("/payroll/daily-earnings", { method: "POST", body: JSON.stringify(data) })).data,
+  reviewDailyEarning: async (id: string, decision: "approved" | "rejected") => (await request<any>(`/payroll/daily-earnings/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision }) })).data,
+  listPayrollRuns: async () => (await request<any[]>("/payroll/runs")).data,
+  createPayrollRun: async (data: Record<string, unknown>) => (await request<any>("/payroll/runs", { method: "POST", body: JSON.stringify(data) })).data,
+  cancelPayrollRun: async (id: string) => (await request<any>(`/payroll/runs/${id}/cancel`, { method: "POST" })).data,
+  deletePayrollRun: async (id: string) => (await request<any>(`/payroll/runs/${id}`, { method: "DELETE" })).data,
+  createPayrollRevision: async (id: string, data: Record<string, unknown>) => (await request<any>(`/payroll/runs/${id}/revisions`, { method: "POST", body: JSON.stringify(data) })).data,
+  cancelPayrollRevision: async (id: string) => (await request<any>(`/payroll/runs/${id}/cancel-revision`, { method: "POST" })).data,
+  submitPayrollRun: async (id: string) => (await request<any>(`/payroll/runs/${id}/submit`, { method: "POST" })).data,
+  approvePayrollRun: async (id: string) => (await request<any>(`/payroll/runs/${id}/approve`, { method: "POST" })).data,
+  finalizePayrollRun: async (id: string) => (await request<any>(`/payroll/runs/${id}/finalize`, { method: "POST" })).data,
+  recordPayrollPayment: async (id: string, data: Record<string, unknown>) => (await request<any>(`/payroll/runs/${id}/payments`, { method: "POST", body: JSON.stringify(data) })).data,
+  listMyPayroll: async () => (await request<any[]>("/my-payroll")).data,
+  getOvertime: async () => (await request<any>("/overtime")).data,
+  createOvertimePolicy: async (data: Record<string, unknown>) => (await request<any>("/overtime/policies", { method: "POST", body: JSON.stringify(data) })).data,
+  updateOvertimePolicy: async (id: string, data: Record<string, unknown>) => (await request<any>(`/overtime/policies/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
+  deleteOvertimePolicy: async (id: string) => (await request<any>(`/overtime/policies/${id}`, { method: "DELETE" })).data,
+  createOvertimeEntry: async (data: Record<string, unknown>) => (await request<any>("/overtime/entries", { method: "POST", body: JSON.stringify(data) })).data,
+  reviewOvertime: async (id: string, decision: "approved" | "rejected") => (await request<any>(`/overtime/entries/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision }) })).data,
+  getLeaveAdmin: async () => (await request<any>("/leave/types")).data,
+  getLeaveTypes: async () => (await request<any>("/leave/types/available")).data,
+  listLeaveRequests: async (mine = false) => (await request<any[]>(`/leave/requests${mine ? "/mine" : ""}`)).data,
+  createLeaveType: async (data: Record<string, unknown>) => (await request<any>("/leave/types", { method: "POST", body: JSON.stringify(data) })).data,
+  updateLeaveType: async (id: string, data: Record<string, unknown>) => (await request<any>(`/leave/types/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
+  deleteLeaveType: async (id: string) => (await request<any>(`/leave/types/${id}`, { method: "DELETE" })).data,
+  createLeaveRequest: async (data: Record<string, unknown>) => (await request<any>("/leave/requests", { method: "POST", body: JSON.stringify(data) })).data,
+  reviewLeaveRequest: async (id: string, decision: "approved" | "rejected", comment = "") => (await request<any>(`/leave/requests/${id}/review`, { method: "PATCH", body: JSON.stringify({ decision, comment }) })).data,
+  getWorkforceReport: async (type: "attendance" | "payroll" | "overtime" | "leave", from: string, to: string) => (await request<any>(`/workforce-reports/${type}?${buildQueryString({ from, to })}`)).data,
+  listComplianceRules: async () => (await request<any[]>("/compliance/rules")).data,
+  createComplianceRule: async (data: Record<string, unknown>) => (await request<any>("/compliance/rules", { method: "POST", body: JSON.stringify(data) })).data,
+  submitComplianceRule: async (id: string) => (await request<any>(`/compliance/rules/${id}/submit`, { method: "POST" })).data,
+  activateComplianceRule: async (id: string) => (await request<any>(`/compliance/rules/${id}/activate`, { method: "POST" })).data,
+  listPendingComplianceRules: async () => (await request<any[]>("/platform/compliance/pending")).data,
+  reviewComplianceRule: async (organizationId: string, id: string, data: { decision: "validated" | "rejected"; legalReviewReference: string }) => (await request<any>(`/platform/compliance/${organizationId}/rules/${id}/review`, { method: "POST", body: JSON.stringify(data) })).data,
 
   // Customers
   listCustomers: async (params?: Record<string, any>) => {
@@ -420,9 +520,29 @@ export const api = {
 
   // Attendance
   getAttendanceConfig: async () => {
-    const res = await request<{ policy: AttendancePolicy; locations: AttendanceOfficeLocation[] }>("/attendance/config");
+    const res = await request<{
+      policy: AttendancePolicy;
+      locations: AttendanceOfficeLocation[];
+      todayShift?: {
+        id: string;
+        name: string;
+        shiftType: string;
+        startTime: string;
+        endTime: string;
+        crossesMidnight: boolean;
+        flexibleWindowMinutes: number;
+        breaks: Array<{ name: string; startTime: string; endTime: string; paid: boolean }>;
+        weeklyOffs: number[];
+        isWeeklyOff: boolean;
+      } | null;
+    }>("/attendance/config");
     return res.data;
   },
+  listAttendanceEmployees: async () => {
+    return request<Array<{ id: string; name: string; email: string; employeeNumber?: string; profileId?: string | null; hasLogin?: boolean }>>("/attendance/employees");
+  },
+  getGuardAttendanceConfig: async () => (await request<{ policy: AttendancePolicy; locations: AttendanceOfficeLocation[] }>("/attendance/guard-config")).data,
+  guardAttendancePunch: async (data: { employeeId: string; action: "check_in" | "check_out"; photoAssetId: string; officeLocationId?: string; latitude?: number; longitude?: number; gpsAccuracyM?: number }) => (await request<any>("/attendance/guard-punch", { method: "POST", body: JSON.stringify(data) })).data,
   updateAttendancePolicy: async (data: AttendancePolicy) => {
     const res = await request<AttendancePolicy>("/attendance/policy", { method: "PATCH", body: JSON.stringify(data) });
     return res.data;
@@ -439,7 +559,7 @@ export const api = {
     const res = await request<{ id: string; status: "inactive" }>(`/attendance/locations/${id}`, { method: "DELETE" });
     return res.data;
   },
-  adjustAttendance: async (data: { employeeId: string; attendanceDate: string; status: "present" | "absent" | "leave"; checkInAt?: string; checkOutAt?: string; reason: string }) => {
+  adjustAttendance: async (data: { employeeId: string; attendanceDate: string; status: "present" | "half_day" | "absent" | "leave"; checkInAt?: string; checkOutAt?: string; reason: string }) => {
     const res = await request<AttendanceRecord>("/attendance/admin/adjustments", { method: "PUT", body: JSON.stringify(data) });
     return res.data;
   },
