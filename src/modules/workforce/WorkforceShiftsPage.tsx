@@ -23,6 +23,7 @@ export function WorkforceShiftsPage() {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [swaps, setSwaps] = useState<ShiftSwapRequest[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -55,25 +56,34 @@ export function WorkforceShiftsPage() {
     reason: "",
   });
 
-  const load = async () => {
+  const load = async (view = activeTab, schedule = scheduleTab, includeAssignmentForm = assigning) => {
+    setLoading(true);
     try {
-      const [result, people, swapList] = await Promise.all([
-        api.listWorkforceShifts(),
-        api.listWorkforceEmployees({ limit: 100, status: "active" }),
-        api.listShiftSwaps(!isAdminOrSubadmin),
+      const [result, swapList] = await Promise.all([
+        view === "schedules" ? api.listWorkforceShifts(schedule === "assignments" ? (includeAssignmentForm ? "assignment-form" : "assignments") : "shifts") : Promise.resolve(null),
+        view === "swaps" ? api.listShiftSwaps(!isAdminOrSubadmin) : Promise.resolve(null),
       ]);
-      setShifts(result.shifts);
-      setAssignments(result.assignments);
-      setEmployees(people.data);
-      setSwaps(swapList);
+      if (result) { setShifts(result.shifts); setAssignments(result.assignments); }
+      if (swapList) setSwaps(swapList);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load shifts");
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [activeTab, scheduleTab, assigning]);
+
+  useEffect(() => {
+    if (!((activeTab === "schedules" && scheduleTab === "assignments" && assigning) || (activeTab === "swaps" && swapping))) return;
+    let cancelled = false;
+    void api.listWorkforceEmployees({ limit: 100, status: "active" }).then((people) => {
+      if (!cancelled) setEmployees(people.data);
+    }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load employees"));
+    return () => { cancelled = true; };
+  }, [activeTab, scheduleTab, assigning, swapping]);
 
   const addBreak = () => {
     setShift((s) => ({
@@ -135,7 +145,7 @@ export function WorkforceShiftsPage() {
       await api.assignWorkforceShift({ ...assignment, effectiveTo: assignment.effectiveTo || null });
       toast.success("Shift assigned");
       setAssigning(false);
-      await load();
+      await load("schedules", "assignments", false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not assign shift");
     } finally {
@@ -188,28 +198,12 @@ export function WorkforceShiftsPage() {
       <PageHeader
         title="Shifts & Schedules"
         description="Create effective-dated work shifts with break policies, assign staff to rosters, and manage shift swap requests."
-      />
-
-      <HelpGuide
-        title="Shift Scheduling & Swap Management"
-        description="Build a shift roster, assign employees to shifts, and configure automated break deductions and lateness thresholds."
-        whyThisExists="Shifts drive attendance lateness calculations, automatic break deductions from working hours, half-day thresholds, and payroll-ready daily work logs."
-        steps={[
-          { step: 1, title: "Create Shifts", description: "Define shifts with start/end times, weekly offs, flexible window, and break periods.", badge: "Admin" },
-          { step: 2, title: "Assign to Employees", description: "Assign the correct shift to each employee with an effective-from date.", badge: "Admin" },
-          { step: 3, title: "Break Deductions", description: "Unpaid breaks defined in the shift are auto-deducted from total working hours on check-out.", badge: "Auto" },
-          { step: 4, title: "Shift Swaps", description: "Employees request shift swaps; managers approve or reject via the Swap Requests tab.", badge: "Staff" },
-        ]}
-        rules={[
-          { label: "Flexible Window", value: "Lateness is only triggered after expected start + flexible window minutes." },
-          { label: "Unpaid Breaks", value: "Breaks marked 'unpaid' are automatically deducted from daily working minutes." },
-          { label: "Weekly Offs", value: "Shifts with weekly off days configured show 'Weekly Off Today' on employee punch screen." },
-          { label: "Overnight Shifts", value: "Crosses midnight detection allows correct duration calculation for night shifts." },
-        ]}
-        roles={[
-          { role: "Org Admin / Sub-admin", summary: "Create, edit, and assign shifts to employees. Review and approve swap requests." },
-          { role: "Employees", summary: "View assigned shift on today's punch screen. Submit shift swap requests to colleagues." },
-        ]}
+        action={<>
+          {activeTab === "schedules" && isAdminOrSubadmin && (scheduleTab === "shifts"
+            ? <Button size="sm" onClick={() => { setEditingShiftId(null); setCreating((value) => !value); }}><Plus className="h-4 w-4" />New shift</Button>
+            : <Button size="sm" variant="secondary" onClick={() => setAssigning((value) => !value)} disabled={loading}><CalendarDays className="h-4 w-4" />Assign shift</Button>)}
+          <HelpGuide compact title="Shift Scheduling & Swap Management" description="Build a shift roster, assign employees to shifts, and configure automated break deductions and lateness thresholds." whyThisExists="Shifts drive attendance lateness calculations, automatic break deductions from working hours, half-day thresholds, and payroll-ready daily work logs." steps={[{ step: 1, title: "Create Shifts", description: "Define shifts with start/end times, weekly offs, flexible window, and break periods.", badge: "Admin" }, { step: 2, title: "Assign to Employees", description: "Assign the correct shift to each employee with an effective-from date.", badge: "Admin" }, { step: 3, title: "Break Deductions", description: "Unpaid breaks are automatically deducted from total working minutes.", badge: "Auto" }, { step: 4, title: "Shift Swaps", description: "Employees request swaps for manager review.", badge: "Staff" }]} rules={[{ label: "Flexible Window", value: "Lateness starts after expected start plus the flexible window." }, { label: "Unpaid Breaks", value: "Unpaid breaks are deducted from working time." }, { label: "Weekly Offs", value: "Weekly offs show on the attendance screen." }, { label: "Overnight Shifts", value: "Overnight shifts calculate across midnight." }]} roles={[{ role: "Org Admin / Sub-admin", summary: "Create, edit, and assign shifts. Review swap requests." }, { role: "Employees", summary: "View assigned shifts and request swaps." }]} />
+        </>}
       />
 
       <Tabs
@@ -228,12 +222,7 @@ export function WorkforceShiftsPage() {
         activeTab={scheduleTab}
         onChange={(id) => setScheduleTab(id as "shifts" | "assignments")}
       />}
-
-      {activeTab === "schedules" && isAdminOrSubadmin && <div className="flex justify-end">
-        {scheduleTab === "shifts"
-          ? <Button onClick={() => { setEditingShiftId(null); setCreating((value) => !value); }}><Plus className="mr-2 h-4 w-4" />New shift</Button>
-          : <Button variant="secondary" onClick={() => setAssigning((value) => !value)} disabled={!shifts.length || !employees.length}><CalendarDays className="mr-2 h-4 w-4" />Assign shift</Button>}
-      </div>}
+      {loading && <p className="rounded-lg border border-indigo-100 bg-white px-3 py-2 text-xs text-slate-500">Loading shift data…</p>}
 
       {activeTab === "schedules" && scheduleTab === "shifts" && creating && (
         <form onSubmit={create} className="grid gap-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50/60 p-5 shadow-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -324,13 +313,14 @@ export function WorkforceShiftsPage() {
 
           <div className="col-span-full flex justify-end gap-2 border-t pt-3">
             <Button type="button" variant="secondary" onClick={() => { setCreating(false); setEditingShiftId(null); }}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Saving…" : editingShiftId ? "Save changes" : "Create shift"}</Button>
+            <Button type="submit" isLoading={saving}>{saving ? "Saving…" : editingShiftId ? "Save changes" : "Create shift"}</Button>
           </div>
         </form>
       )}
 
       {activeTab === "schedules" && scheduleTab === "assignments" && assigning && (
         <form onSubmit={assign} className="grid gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 sm:grid-cols-2 lg:grid-cols-4">
+          {!loading && !shifts.length && <p className="col-span-full rounded-lg bg-amber-50 p-3 text-sm text-amber-800">Create a shift before assigning employees.</p>}
           <h3 className="col-span-full font-semibold text-slate-900">Assign shift to employee</h3>
           <CustomSelect label="Employee" required searchable value={assignment.employeeId} onChange={(e) => setAssignment({ ...assignment, employeeId: e.target.value })} placeholder="Search employee" options={employees.map((person) => ({ value: person.id, label: person.name, sublabel: person.employeeNumber }))} />
           <CustomSelect label="Shift" required value={assignment.shiftId} onChange={(e) => setAssignment({ ...assignment, shiftId: e.target.value })} placeholder="Choose shift" options={shifts.filter((item) => item.status === "active").map((item) => ({ value: item.id, label: item.name, sublabel: `${item.startTime}–${item.endTime}` }))} />
@@ -344,7 +334,7 @@ export function WorkforceShiftsPage() {
           </label>
           <div className="col-span-full flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={() => setAssigning(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Saving…" : "Assign"}</Button>
+            <Button type="submit" isLoading={saving}>{saving ? "Saving…" : "Assign"}</Button>
           </div>
         </form>
       )}
@@ -504,12 +494,12 @@ export function WorkforceShiftsPage() {
           </label>
           <div className="flex justify-end gap-2 border-t pt-3">
             <Button type="button" variant="secondary" onClick={() => setSwapping(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving}>{saving ? "Submitting…" : "Submit Request"}</Button>
+            <Button type="submit" isLoading={saving}>{saving ? "Submitting…" : "Submit Request"}</Button>
           </div>
         </form>
       </Modal>
-      <ConfirmDialog isOpen={Boolean(swapToCancel)} onClose={() => setSwapToCancel(null)} onConfirm={() => swapToCancel && void cancelSwap(swapToCancel)} title="Cancel shift swap?" description="This will cancel the pending shift swap request." confirmLabel="Cancel request" />
-      <ConfirmDialog isOpen={Boolean(shiftToDelete)} onClose={() => setShiftToDelete(null)} onConfirm={() => { if (!shiftToDelete) return; void api.deleteWorkforceShift(shiftToDelete.id).then(async () => { toast.success("Shift deleted"); setShiftToDelete(null); await load(); }).catch((error) => { toast.error(error instanceof Error ? error.message : "Could not delete shift"); setShiftToDelete(null); }); }} title="Delete shift?" description={shiftToDelete ? `Delete “${shiftToDelete.name}”? Shifts already assigned to employees are protected.` : ""} confirmLabel="Delete shift" />
+      <ConfirmDialog isOpen={Boolean(swapToCancel)} onClose={() => setSwapToCancel(null)} onConfirm={() => swapToCancel ? cancelSwap(swapToCancel) : undefined} title="Cancel shift swap?" description="This will cancel the pending shift swap request." confirmLabel="Cancel request" />
+      <ConfirmDialog isOpen={Boolean(shiftToDelete)} onClose={() => setShiftToDelete(null)} onConfirm={() => { if (!shiftToDelete) return; return api.deleteWorkforceShift(shiftToDelete.id).then(async () => { toast.success("Shift deleted"); setShiftToDelete(null); await load(); }).catch((error) => { toast.error(error instanceof Error ? error.message : "Could not delete shift"); setShiftToDelete(null); }); }} title="Delete shift?" description={shiftToDelete ? `Delete “${shiftToDelete.name}”? Shifts already assigned to employees are protected.` : ""} confirmLabel="Delete shift" />
     </div>
   );
 }

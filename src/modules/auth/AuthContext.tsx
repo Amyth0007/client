@@ -23,6 +23,7 @@ export type UserProfile = {
     address?: string;
     status: string;
     timezone: string;
+    showGuides?: boolean;
     currency: string;
     modules?: OrganizationModules;
   } | null;

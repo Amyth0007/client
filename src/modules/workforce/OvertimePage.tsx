@@ -59,15 +59,11 @@ export function OvertimePage() {
     reason: "",
   });
 
-  const load = async () => {
+  const load = async (tab = activeTab) => {
     setLoading(true);
     try {
-      const [result, people] = await Promise.all([
-        api.getOvertime(),
-        api.listWorkforceEmployees({ limit: 100, status: "active" }),
-      ]);
+      const result = await api.getOvertime(tab === "policies" ? "policies" : "entries");
       setData(result);
-      setEmployees(people.data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load overtime");
     } finally {
@@ -77,7 +73,16 @@ export function OvertimePage() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!showEntryForm || !(activeTab === "entries" || activeTab === "my-overtime")) return;
+    let cancelled = false;
+    void api.listWorkforceEmployees({ limit: 100, status: "active" }).then((people) => {
+      if (!cancelled) setEmployees(people.data);
+    }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load employees"));
+    return () => { cancelled = true; };
+  }, [activeTab, showEntryForm]);
 
   const submitPolicy = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -180,61 +185,15 @@ export function OvertimePage() {
       <PageHeader
         title="Overtime Management"
         description="Track, approve, and calculate payable overtime with configurable rounding and rate policies."
+        action={<>
+          {canRecordEntry && (activeTab === "entries" || activeTab === "my-overtime") && <Button size="sm" onClick={() => setShowEntryForm(!showEntryForm)}><PlusCircle className="h-4 w-4" />Record overtime</Button>}
+          {canManagePolicy && activeTab === "policies" && <Button size="sm" onClick={() => { setEditingPolicyId(null); setShowPolicyForm(!showPolicyForm); }}><Cog className="h-4 w-4" />Configure new policy</Button>}
+          <HelpGuide compact title="Overtime Approval Workflow" description="Record actual overtime minutes, get manager approval, and feed approved amounts to payroll." whyThisExists="Only manager reviewed overtime becomes payable, keeping payroll aligned with approved work." steps={[{ step: 1, title: "Set OT policy", description: "Set calculation, rounding, and daily cap.", badge: "Admin" }, { step: 2, title: "Record entry", description: "Submit actual extra minutes and a reason.", badge: "Staff / Admin" }, { step: 3, title: "Manager approves", description: "Review and approve or reject entries.", badge: "Admin" }, { step: 4, title: "Payroll processing", description: "Approved overtime is included in payroll.", badge: "Payroll" }]} rules={[{ label: "Rounding", value: "Minutes round down to the configured interval." }, { label: "Daily cap", value: "Payable minutes are capped by policy." }, { label: "Multiplier", value: "Use 1.5 for time-and-a-half or 2 for double time." }]} roles={[{ role: "Org Admin / Managers", summary: "Create policies, record overtime, and review entries." }, { role: "Employees", summary: "View submitted overtime and its status." }]} />
+        </>}
       />
 
-      <HelpGuide
-        title="Overtime Approval Workflow"
-        description="Record actual overtime minutes, get manager approval, and feed approved amounts to payroll."
-        whyThisExists="Separates actual worked hours from approved payable hours — only manager-reviewed overtime becomes payable, preventing unauthorized claims and ensuring policy compliance."
-        steps={[
-          {
-            step: 1,
-            title: "Set OT Policy",
-            description: "Admin defines the overtime calculation method (fixed hourly or base pay multiplier), rounding interval, and daily cap.",
-            badge: "Admin",
-          },
-          {
-            step: 2,
-            title: "Record Entry",
-            description: "Manager or employee submits actual extra minutes worked on a date with a reason.",
-            badge: "Staff / Admin",
-          },
-          {
-            step: 3,
-            title: "Manager Approves",
-            description: "Admin reviews and approves or rejects the overtime entry.",
-            badge: "Admin",
-          },
-          {
-            step: 4,
-            title: "Payroll Processing",
-            description: "Approved minutes are rounded per policy, payable amount is calculated, and included in the next payroll run.",
-            badge: "Payroll",
-          },
-        ]}
-        rules={[
-          { label: "Actual vs Approved", value: "Actual minutes = what was worked. Approved minutes = what's payable after rounding." },
-          { label: "Rounding", value: "Minutes are rounded DOWN to the nearest configured interval (e.g. 15m)." },
-          { label: "Daily Cap", value: "Maximum payable minutes per day is capped by policy (default 240m = 4 hours)." },
-          { label: "Multiplier OT", value: "Enter 1.5 to pay one and a half times the employee’s hourly wage, or 2 for double time." },
-        ]}
-        roles={[
-          { role: "Org Admin / Managers", summary: "Create policies, record OT for staff, approve or reject entries." },
-          { role: "Employees", summary: "View their submitted overtime entries and approval status." },
-        ]}
-      />
 
       <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
-
-      {/* TAB: RECORD NEW OVERTIME (floating action visible on admin all-entries tab) */}
-      {canRecordEntry && (activeTab === "entries" || activeTab === "my-overtime") && (
-        <div className="flex justify-end">
-          <Button onClick={() => setShowEntryForm(!showEntryForm)}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Record Overtime
-          </Button>
-        </div>
-      )}
 
       <Modal isOpen={showEntryForm} onClose={() => setShowEntryForm(false)} title="Record overtime" description="Add one employee’s overtime for one work date and send it for approval." maxWidth="lg">
           <form onSubmit={submitEntry} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -298,13 +257,13 @@ export function OvertimePage() {
               <Button type="button" variant="secondary" onClick={() => setShowEntryForm(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" isLoading={saving}>
                 Submit for Approval
               </Button>
             </div>
           </form>
       </Modal>
-      <ConfirmDialog isOpen={Boolean(policyToDelete)} onClose={() => setPolicyToDelete(null)} onConfirm={() => policyToDelete && void removePolicy(policyToDelete)} title="Delete overtime policy?" description={policyToDelete ? `Delete “${policyToDelete.name}”? Policies used by overtime records cannot be deleted.` : ""} confirmLabel="Delete policy" />
+      <ConfirmDialog isOpen={Boolean(policyToDelete)} onClose={() => setPolicyToDelete(null)} onConfirm={() => policyToDelete ? removePolicy(policyToDelete) : undefined} title="Delete overtime policy?" description={policyToDelete ? `Delete “${policyToDelete.name}”? Policies used by overtime records cannot be deleted.` : ""} confirmLabel="Delete policy" />
 
       {/* TAB: ALL ENTRIES (admin) */}
       {activeTab === "entries" && (
@@ -357,10 +316,10 @@ export function OvertimePage() {
                       <td className="px-4 py-3">
                         {canApprove && item.status === "pending" && (
                           <div className="flex gap-1">
-                            <Button size="sm" onClick={() => void reviewEntry(item.id, "approved")}>
+                            <Button size="sm" onClick={() => reviewEntry(item.id, "approved")}>
                               Approve
                             </Button>
-                            <Button size="sm" variant="secondary" onClick={() => void reviewEntry(item.id, "rejected")}>
+                            <Button size="sm" variant="secondary" onClick={() => reviewEntry(item.id, "rejected")}>
                               Reject
                             </Button>
                           </div>
@@ -398,11 +357,11 @@ export function OvertimePage() {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => void reviewEntry(item.id, "approved")}>
+                    <Button size="sm" onClick={() => reviewEntry(item.id, "approved")}>
                       <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
                       Approve
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => void reviewEntry(item.id, "rejected")}>
+                    <Button size="sm" variant="outline" onClick={() => reviewEntry(item.id, "rejected")}>
                       <XCircle className="mr-1 h-3.5 w-3.5" />
                       Reject
                     </Button>
@@ -457,15 +416,6 @@ export function OvertimePage() {
       {/* TAB: OVERTIME POLICIES */}
       {activeTab === "policies" && (
         <div className="space-y-4">
-          {canManagePolicy && (
-            <div className="flex justify-end">
-              <Button onClick={() => { setEditingPolicyId(null); setShowPolicyForm(!showPolicyForm); }}>
-                <Cog className="mr-2 h-4 w-4" />
-                Configure New Policy
-              </Button>
-            </div>
-          )}
-
           {canManagePolicy && showPolicyForm && (
             <Card title={editingPolicyId ? "Edit Overtime Policy" : "New Overtime Policy"} subtitle="Set a per-hour rate or pay multiplier, plus rounding rules">
               <form onSubmit={submitPolicy} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -537,7 +487,7 @@ export function OvertimePage() {
                   <Button type="button" variant="secondary" onClick={() => setShowPolicyForm(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     {editingPolicyId ? "Save Changes" : "Save Policy"}
                   </Button>
                 </div>

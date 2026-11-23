@@ -102,6 +102,7 @@ export function PayrollFoundationPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [previewRunId, setPreviewRunId] = useState<string | null>(() => typeof window === "undefined" ? null : window.sessionStorage.getItem("workforce-current-payroll-preview"));
   const [saving, setSaving] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("runs");
   const [runAction, setRunAction] = useState<{ run: any; action: "cancel" | "delete" } | null>(null);
@@ -169,19 +170,20 @@ export function PayrollFoundationPage() {
     rateMinor: "",
   });
 
-  const load = async () => {
+  const load = async (tab = activeTab) => {
     setLoading(true);
     try {
+      const wantsCompensation = ["structures", "components", "assignments"].includes(tab);
       const [comp, entryList, people, payrollRuns] = await Promise.all([
-        api.getPayrollCompensation(),
-        api.listDailyEarnings(),
-        api.listPayrollEmployees({ limit: 100 }),
-        api.listPayrollRuns(),
+        wantsCompensation ? api.getPayrollCompensation() : Promise.resolve(null),
+        tab === "earnings" ? api.listDailyEarnings() : Promise.resolve(null),
+        ["earnings", "assignments"].includes(tab) ? api.listPayrollEmployees({ limit: 100 }) : Promise.resolve(null),
+        ["runs", "pastRuns"].includes(tab) ? api.listPayrollRuns() : Promise.resolve(null),
       ]);
-      setData(comp);
-      setEarnings(entryList);
-      setEmployees(people.data);
-      setRuns(payrollRuns);
+      if (comp) setData(comp);
+      if (entryList) setEarnings(entryList);
+      if (people) setEmployees(people.data);
+      if (payrollRuns) setRuns(payrollRuns);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load payroll setup");
     } finally {
@@ -191,7 +193,7 @@ export function PayrollFoundationPage() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [activeTab]);
 
   const save = async (event: React.FormEvent, operation: () => Promise<unknown>, close: () => void) => {
     event.preventDefault();
@@ -336,7 +338,9 @@ export function PayrollFoundationPage() {
               <Input className="col-span-2 py-1.5 md:col-span-1" label="Payroll name (optional)" value={payrollName} onChange={(e) => setPayrollName(e.target.value)} placeholder="e.g. November payroll" />
               <Input className="py-1.5" label="Start date" type="date" value={period.periodStart} onChange={(e) => setPeriod({ ...period, periodStart: e.target.value })} />
               <Input className="py-1.5" label="End date" type="date" value={period.periodEnd} onChange={(e) => setPeriod({ ...period, periodEnd: e.target.value })} />
-              <Button className="col-span-2 w-full md:col-span-1" size="sm" onClick={async () => {
+              <Button className="col-span-2 w-full md:col-span-1" size="sm" isLoading={previewing} disabled={previewing || !period.periodStart || !period.periodEnd || period.periodEnd < period.periodStart} onClick={async () => {
+                if (previewing) return;
+                setPreviewing(true);
                 try {
                   const preview = await api.createPayrollRun({ ...period, name: payrollName.trim() || undefined });
                   if (preview?.id) {
@@ -348,8 +352,8 @@ export function PayrollFoundationPage() {
                   toast.success("Payroll preview created — review employees then submit");
                 } catch (error) {
                   toast.error(error instanceof Error ? error.message : "Preview failed");
-                }
-              }}><Receipt className="mr-2 h-4 w-4" />Preview period</Button>
+                } finally { setPreviewing(false); }
+              }}><Receipt className="mr-2 h-4 w-4" />{previewing ? "Creating preview…" : "Preview period"}</Button>
             </div>
           </Card>}
           {activeTab === "runs" && !loading && !currentPreview && <EmptyState icon={Receipt} title="No current preview" description="Choose a date range above to create a payroll preview. Submitted and older runs are kept in Past runs." />}
@@ -508,7 +512,7 @@ export function PayrollFoundationPage() {
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-slate-50 p-2"><span className="block text-slate-500">Gross</span><strong className="text-slate-900">{formatMoney(employee.grossEarningsMinor, run.currency)}</strong></div><div className="rounded-lg bg-rose-50 p-2"><span className="block text-rose-600">Deductions</span><strong className="text-rose-800">{formatMoney(employee.deductionsMinor, run.currency)}</strong></div><div className="rounded-lg bg-indigo-50 p-2"><span className="block text-indigo-600">Net pay</span><strong className="text-indigo-900">{formatMoney(employee.netPayMinor, run.currency)}</strong></div><div className="rounded-lg bg-emerald-50 p-2"><span className="block text-emerald-600">Paid</span><strong className="text-emerald-800">{formatMoney(employee.paidMinor, run.currency)}</strong></div></div>
                       {(run.state === "finalized" || run.state === "partially_paid") && employee.paidMinor < employee.netPayMinor && <form className="mt-3 grid grid-cols-2 gap-2" onSubmit={async (e) => { e.preventDefault(); const form = e.currentTarget; const amount = Math.round(Number(new FormData(form).get("amountRupees")) * 100); const reference = String(new FormData(form).get("reference") || ""); try { await api.recordPayrollPayment(run.id, { employeeId: employee.employeeId, amountMinor: amount, reference }); await load(); toast.success("Payment recorded"); } catch (error) { toast.error(error instanceof Error ? error.message : "Payment failed"); } }}><input name="amountRupees" type="number" min="0.01" step="0.01" required className="min-w-0 rounded-lg border border-slate-200 px-2 py-2 text-xs" placeholder="Payment amount (₹)" aria-label={`Payment amount for ${employee.employeeName}`} /><input name="reference" className="min-w-0 rounded-lg border border-slate-200 px-2 py-2 text-xs" placeholder="Reference / UTR" aria-label={`Payment reference for ${employee.employeeName}`} /><Button className="col-span-2 w-full" size="sm" type="submit">Record payment</Button></form>}
                       {employee.paidMinor >= employee.netPayMinor && employee.netPayMinor > 0 && <p className="mt-3 flex items-center gap-1 text-xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />Paid</p>}
-                      {["finalized", "partially_paid", "paid"].includes(run.state) && <Button className="mt-3 w-full" size="sm" variant="outline" onClick={() => void downloadEmployeePayslip(run, employee, user?.organization)}>Download payslip</Button>}
+                      {["finalized", "partially_paid", "paid"].includes(run.state) && <Button className="mt-3 w-full" size="sm" variant="outline" onClick={() => downloadEmployeePayslip(run, employee, user?.organization)}>Download payslip</Button>}
                     </article>)}
                   </div>
                   <div className="mt-4 hidden overflow-x-auto md:block">
@@ -597,7 +601,7 @@ export function PayrollFoundationPage() {
                                 </span>
                               )}
                             </td>
-                            <td className="min-w-[150px] py-2.5 px-3 text-center">{["finalized", "partially_paid", "paid"].includes(run.state) && <Button className="whitespace-nowrap" size="sm" variant="outline" onClick={() => void downloadEmployeePayslip(run, employee, user?.organization)}>Download payslip</Button>}</td>
+                            <td className="min-w-[150px] py-2.5 px-3 text-center">{["finalized", "partially_paid", "paid"].includes(run.state) && <Button className="whitespace-nowrap" size="sm" variant="outline" onClick={() => downloadEmployeePayslip(run, employee, user?.organization)}>Download payslip</Button>}</td>
                           </tr>
                           </Fragment>
                         ))}
@@ -704,7 +708,7 @@ export function PayrollFoundationPage() {
                   <Button type="button" variant="secondary" onClick={() => setShowEarning(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     Create Earning Entry
                   </Button>
                 </div>
@@ -907,7 +911,7 @@ export function PayrollFoundationPage() {
                   <Button type="button" variant="secondary" onClick={() => setShowStructure(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     {editingStructureId ? "Save Changes" : "Save Pay Structure"}
                   </Button>
                 </div>
@@ -1068,7 +1072,7 @@ export function PayrollFoundationPage() {
                   <Button type="button" variant="secondary" onClick={() => setShowComponent(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     Save Component
                   </Button>
                 </div>
@@ -1196,7 +1200,7 @@ export function PayrollFoundationPage() {
                   <Button type="button" variant="secondary" onClick={() => setShowAssignment(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     {editingAssignmentId ? "Save Changes" : "Save Assignment"}
                   </Button>
                 </div>
@@ -1374,7 +1378,7 @@ export function PayrollFoundationPage() {
               <Button type="button" variant="secondary" onClick={() => setRevisionRun(null)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving || !revisionForm.adjustments.length}>
+              <Button type="submit" isLoading={saving} disabled={!revisionForm.adjustments.length}>
                 Create Revision Draft
               </Button>
             </div>
@@ -1409,9 +1413,9 @@ export function PayrollFoundationPage() {
         title={runAction?.action === "delete" ? "Delete this payroll run?" : "Cancel this payroll preview?"}
         description={runAction?.action === "delete" ? "This permanently removes the run because no employee payment has been recorded. Keep a copy if you need it for your records." : "The draft will be marked cancelled. Create a new preview after correcting any missing records."}
         confirmLabel={runAction?.action === "delete" ? "Delete run" : "Cancel preview"}
-        onConfirm={() => { if (!runAction) return; const action = runAction; void (async () => { try { if (action.action === "delete") { await api.deletePayrollRun(action.run.id); if (previewRunId === action.run.id) { setPreviewRunId(null); window.sessionStorage.removeItem("workforce-current-payroll-preview"); } } else await api.cancelPayrollRun(action.run.id); toast.success(action.action === "delete" ? "Payroll run deleted" : "Preview cancelled"); setRunAction(null); await load(); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update payroll run"); setRunAction(null); } })(); }}
+        onConfirm={async () => { if (!runAction) return; const action = runAction; try { if (action.action === "delete") { await api.deletePayrollRun(action.run.id); if (previewRunId === action.run.id) { setPreviewRunId(null); window.sessionStorage.removeItem("workforce-current-payroll-preview"); } } else await api.cancelPayrollRun(action.run.id); toast.success(action.action === "delete" ? "Payroll run deleted" : "Preview cancelled"); setRunAction(null); await load(); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update payroll run"); setRunAction(null); } }}
       />
-      <ConfirmDialog isOpen={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title={`Delete ${deleteTarget?.kind === "structure" ? "pay structure" : "pay assignment"}?`} description={deleteTarget?.kind === "structure" ? `Delete “${deleteTarget.name}”? Structures assigned to employees are protected.` : "Delete this employee’s pay assignment? Assignments used in payroll runs are protected."} confirmLabel="Delete" onConfirm={() => { if (!deleteTarget) return; void (async () => { try { if (deleteTarget.kind === "structure") await api.deletePayStructure(deleteTarget.id); else await api.deleteCompensationAssignment(deleteTarget.id); toast.success(deleteTarget.kind === "structure" ? "Pay structure deleted" : "Assignment deleted"); setDeleteTarget(null); await load(); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete record"); setDeleteTarget(null); } })(); }} />
+      <ConfirmDialog isOpen={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title={`Delete ${deleteTarget?.kind === "structure" ? "pay structure" : "pay assignment"}?`} description={deleteTarget?.kind === "structure" ? `Delete “${deleteTarget.name}”? Structures assigned to employees are protected.` : "Delete this employee’s pay assignment? Assignments used in payroll runs are protected."} confirmLabel="Delete" onConfirm={async () => { if (!deleteTarget) return; try { if (deleteTarget.kind === "structure") await api.deletePayStructure(deleteTarget.id); else await api.deleteCompensationAssignment(deleteTarget.id); toast.success(deleteTarget.kind === "structure" ? "Pay structure deleted" : "Assignment deleted"); setDeleteTarget(null); await load(); } catch (error) { toast.error(error instanceof Error ? error.message : "Could not delete record"); setDeleteTarget(null); } }} />
     </div>
   );
 }

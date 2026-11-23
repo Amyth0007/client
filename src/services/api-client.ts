@@ -45,6 +45,38 @@ export type ShiftSwapRequest = {
 let inMemoryToken: string | null = null;
 let authSessionGeneration = 0;
 let refreshInFlight: Promise<string | null> | null = null;
+let activeApiRequests = 0;
+const apiActivityListeners = new Set<(active: number, delta: number) => void>();
+const pendingRequests = new Map<string, Promise<unknown>>();
+
+export function subscribeApiActivity(listener: () => void) {
+  const wrappedListener = () => listener();
+  apiActivityListeners.add(wrappedListener);
+  return () => apiActivityListeners.delete(wrappedListener);
+}
+
+export function subscribeApiActivityChanges(listener: (active: number, delta: number) => void) {
+  apiActivityListeners.add(listener);
+  return () => apiActivityListeners.delete(listener);
+}
+
+export function getApiActivitySnapshot() {
+  return activeApiRequests;
+}
+
+function updateApiActivity(delta: number) {
+  activeApiRequests = Math.max(0, activeApiRequests + delta);
+  apiActivityListeners.forEach((listener) => listener(activeApiRequests, delta));
+}
+
+async function trackedFetch(input: RequestInfo | URL, init?: RequestInit) {
+  updateApiActivity(1);
+  try {
+    return await fetch(input, init);
+  } finally {
+    updateApiActivity(-1);
+  }
+}
 
 function refreshAccessToken(expectedGeneration: number): Promise<string | null> {
   if (!refreshInFlight) {
@@ -116,7 +148,7 @@ function buildQueryString(params?: Record<string, unknown>): string {
   return query.toString();
 }
 
-async function request<T>(
+async function performRequest<T>(
   path: string,
   options: RequestInit = {},
   isRetry = false,
@@ -132,11 +164,13 @@ async function request<T>(
     headers.set("Authorization", `Bearer ${inMemoryToken}`);
   }
 
-  const res = await fetch(apiUrl(path), {
-    ...options,
-    headers,
-    credentials: "include", // send cookies for refresh token
-  });
+  updateApiActivity(1);
+  try {
+    const res = await fetch(apiUrl(path), {
+      ...options,
+      headers,
+      credentials: "include", // send cookies for refresh token
+    });
 
   // Handle 401 and try refresh once
   if (res.status === 401 && requestGeneration === authSessionGeneration && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
@@ -161,7 +195,35 @@ async function request<T>(
     );
   }
 
-  return body;
+    return body;
+  } finally {
+    updateApiActivity(-1);
+  }
+}
+
+function request<T>(path: string, options: RequestInit = {}, isRetry = false): Promise<{ data: T; meta?: { page: number; limit: number; total: number } }> {
+  const method = (options.method ?? "GET").toUpperCase();
+  if (isRetry) return performRequest<T>(path, options, isRetry);
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return performRequest<T>(path, options, isRetry);
+  if (options.body && typeof options.body !== "string") return performRequest<T>(path, options, isRetry);
+
+  // Concurrent identical writes share one network operation so rapid repeated
+  // clicks cannot apply the same mutation twice.
+  const bodyKey = typeof options.body === "string" ? options.body : "";
+  const key = `${authSessionGeneration}:${method}:${path}:${bodyKey}`;
+  const existing = pendingRequests.get(key);
+  if (existing) return existing as Promise<{ data: T; meta?: { page: number; limit: number; total: number } }>;
+
+  const pending = performRequest<T>(path, options, isRetry);
+  pendingRequests.set(key, pending);
+  void pending.finally(() => {
+    const release = () => {
+      if (pendingRequests.get(key) === pending) pendingRequests.delete(key);
+    };
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) setTimeout(release, 500);
+    else release();
+  }).catch(() => undefined);
+  return pending;
 }
 
 export const api = {
@@ -188,7 +250,7 @@ export const api = {
   logout: async () => {
     invalidateAuthSession();
     try {
-      await fetch(apiUrl("/auth/logout"), {
+      await trackedFetch(apiUrl("/auth/logout"), {
         method: "POST",
         credentials: "include",
       });
@@ -265,7 +327,7 @@ export const api = {
   createWorkforceDepartment: async (data: Record<string, unknown>) => (await request<any>("/workforce/departments", { method: "POST", body: JSON.stringify(data) })).data,
   listWorkforceDesignations: async () => (await request<any[]>("/workforce/designations")).data,
   createWorkforceDesignation: async (data: Record<string, unknown>) => (await request<any>("/workforce/designations", { method: "POST", body: JSON.stringify(data) })).data,
-  listWorkforceShifts: async () => (await request<{ shifts: any[]; assignments: any[] }>("/workforce/shifts")).data,
+  listWorkforceShifts: async (section?: "shifts" | "assignments" | "assignment-form") => (await request<{ shifts: any[]; assignments: any[] }>(`/workforce/shifts${section ? `?section=${section}` : ""}`)).data,
   createWorkforceShift: async (data: Record<string, unknown>) => (await request<any>("/workforce/shifts", { method: "POST", body: JSON.stringify(data) })).data,
   updateWorkforceShift: async (id: string, data: Record<string, unknown>) => (await request<any>(`/workforce/shifts/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
   deleteWorkforceShift: async (id: string) => (await request<any>(`/workforce/shifts/${id}`, { method: "DELETE" })).data,
@@ -297,7 +359,7 @@ export const api = {
   finalizePayrollRun: async (id: string) => (await request<any>(`/payroll/runs/${id}/finalize`, { method: "POST" })).data,
   recordPayrollPayment: async (id: string, data: Record<string, unknown>) => (await request<any>(`/payroll/runs/${id}/payments`, { method: "POST", body: JSON.stringify(data) })).data,
   listMyPayroll: async () => (await request<any[]>("/my-payroll")).data,
-  getOvertime: async () => (await request<any>("/overtime")).data,
+  getOvertime: async (section?: "policies" | "entries") => (await request<any>(`/overtime${section ? `?section=${section}` : ""}`)).data,
   createOvertimePolicy: async (data: Record<string, unknown>) => (await request<any>("/overtime/policies", { method: "POST", body: JSON.stringify(data) })).data,
   updateOvertimePolicy: async (id: string, data: Record<string, unknown>) => (await request<any>(`/overtime/policies/${id}`, { method: "PATCH", body: JSON.stringify(data) })).data,
   deleteOvertimePolicy: async (id: string) => (await request<any>(`/overtime/policies/${id}`, { method: "DELETE" })).data,
@@ -627,7 +689,7 @@ export const api = {
       headers.set("Authorization", `Bearer ${inMemoryToken}`);
     }
 
-    const res = await fetch(apiUrl("/files/upload"), {
+    const res = await trackedFetch(apiUrl("/files/upload"), {
       method: "POST",
       headers,
       credentials: "include",
@@ -645,13 +707,13 @@ export const api = {
     return body.data;
   },
   getFileBlob: async (fileId: string): Promise<Blob> => {
-    const fetchBlob = (token: string | null) => fetch(apiUrl(`/files/${fileId}/download?inline=true`), {
+    const fetchBlob = (token: string | null) => trackedFetch(apiUrl(`/files/${fileId}/download?inline=true`), {
       credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     let response = await fetchBlob(inMemoryToken);
     if (response.status === 401) {
-      const refreshed = await fetch(apiUrl("/auth/refresh"), { method: "POST", credentials: "include" });
+      const refreshed = await trackedFetch(apiUrl("/auth/refresh"), { method: "POST", credentials: "include" });
       if (refreshed.ok) {
         const payload = await refreshed.json();
         setAccessToken(payload.data.accessToken);

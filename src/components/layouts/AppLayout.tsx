@@ -24,6 +24,7 @@ import { useAuth } from "../../modules/auth/AuthContext.js";
 import { Button } from "../common/Button.js";
 import { Modal } from "../common/Modal.js";
 import { userCanAccessModule } from "../../modules/platform/module-registry.js";
+import { ApiProgressBar } from "../common/ApiProgressBar.js";
 
 export function AppLayout() {
   const { user, logout } = useAuth();
@@ -120,6 +121,7 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex">
+      <ApiProgressBar />
       {/* Desktop Sidebar (hidden on mobile) */}
       <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 bg-white border-r border-slate-200 z-30">
         {/* Brand */}
@@ -283,7 +285,7 @@ export function AppLayout() {
       <Modal isOpen={logoutModalOpen} onClose={() => setLogoutModalOpen(false)} title="Log out?" description="Are you sure you want to log out of Recovr?" maxWidth="sm">
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={() => setLogoutModalOpen(false)} disabled={isLoggingOut}>Stay signed in</Button>
-          <Button variant="danger" isLoading={isLoggingOut} onClick={() => void confirmLogout()}>Log out</Button>
+          <Button variant="danger" isLoading={isLoggingOut} onClick={() => confirmLogout()}>Log out</Button>
         </div>
       </Modal>
     </div>

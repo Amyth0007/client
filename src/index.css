@@ -4,6 +4,16 @@
   stroke-width: 2.4;
 }
 
+.api-progress-bar {
+  animation: api-progress-travel 1.1s ease-in-out infinite;
+}
+
+@keyframes api-progress-travel {
+  0% { transform: translateX(-110%); }
+  60% { transform: translateX(150%); }
+  100% { transform: translateX(280%); }
+}
+
 @media (max-width: 767px) {
   .text-xs {
     font-size: 0.875rem;

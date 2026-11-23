@@ -52,16 +52,17 @@ export function LeavePage() {
     reason: "",
   });
 
-  const load = async () => {
+  const load = async (tab = activeTab) => {
     setLoading(true);
     try {
+      const needsTypes = isEmployee ? tab === "my-requests" || tab === "balances" : tab === "types" || tab === "balances";
+      const needsRequests = ["my-requests", "approvals", "all-requests"].includes(tab);
       const [typeResult, requestResult] = await Promise.all([
-        isEmployee ? api.getLeaveTypes() : api.getLeaveAdmin(),
-        api.listLeaveRequests(isEmployee),
+        needsTypes ? (isEmployee ? api.getLeaveTypes() : api.getLeaveAdmin()) : Promise.resolve(null),
+        needsRequests ? api.listLeaveRequests(isEmployee) : Promise.resolve(null),
       ]);
-      setTypes(typeResult.types);
-      setBalances(typeResult.balances);
-      setRequests(requestResult);
+      if (typeResult) { setTypes(typeResult.types); setBalances(typeResult.balances); }
+      if (requestResult) setRequests(requestResult);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load leave data");
     } finally {
@@ -71,7 +72,7 @@ export function LeavePage() {
 
   useEffect(() => {
     void load();
-  }, [isEmployee]);
+  }, [isEmployee, activeTab]);
 
   const submitType = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -263,7 +264,7 @@ export function LeavePage() {
                   <Button type="button" variant="secondary" onClick={() => setShowRequestForm(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     Submit Request
                   </Button>
                 </div>
@@ -339,11 +340,11 @@ export function LeavePage() {
                     <p className="mt-0.5 text-xs text-slate-500 italic">{item.reason}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => void reviewRequest(item.id, "approved")}>
+                    <Button size="sm" onClick={() => reviewRequest(item.id, "approved")}>
                       <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
                       Approve
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => void reviewRequest(item.id, "rejected")}>
+                    <Button size="sm" variant="outline" onClick={() => reviewRequest(item.id, "rejected")}>
                       <XCircle className="mr-1 h-3.5 w-3.5" />
                       Reject
                     </Button>
@@ -402,10 +403,10 @@ export function LeavePage() {
                       <td className="px-4 py-3">
                         {item.status === "pending" && (
                           <div className="flex gap-1">
-                            <Button size="sm" onClick={() => void reviewRequest(item.id, "approved")}>
+                            <Button size="sm" onClick={() => reviewRequest(item.id, "approved")}>
                               Approve
                             </Button>
-                            <Button size="sm" variant="secondary" onClick={() => void reviewRequest(item.id, "rejected")}>
+                            <Button size="sm" variant="secondary" onClick={() => reviewRequest(item.id, "rejected")}>
                               Reject
                             </Button>
                           </div>
@@ -526,7 +527,7 @@ export function LeavePage() {
                   <Button type="button" variant="secondary" onClick={() => setShowTypeForm(false)}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     {editingTypeId ? "Save Changes" : "Create Leave Type"}
                   </Button>
                 </div>
@@ -575,7 +576,7 @@ export function LeavePage() {
           </div>
         </div>
       )}
-      <ConfirmDialog isOpen={Boolean(typeToDelete)} onClose={() => setTypeToDelete(null)} onConfirm={() => { if (!typeToDelete) return; void api.deleteLeaveType(typeToDelete.id).then(async () => { toast.success("Leave type deleted"); setTypeToDelete(null); await load(); }).catch((error) => { toast.error(error instanceof Error ? error.message : "Could not delete leave type"); setTypeToDelete(null); }); }} title="Delete leave type?" description={typeToDelete ? `Delete “${typeToDelete.name}”? Leave types with requests or balances are protected; you can edit them or mark inactive instead.` : ""} confirmLabel="Delete leave type" />
+      <ConfirmDialog isOpen={Boolean(typeToDelete)} onClose={() => setTypeToDelete(null)} onConfirm={() => { if (!typeToDelete) return; return api.deleteLeaveType(typeToDelete.id).then(async () => { toast.success("Leave type deleted"); setTypeToDelete(null); await load(); }).catch((error) => { toast.error(error instanceof Error ? error.message : "Could not delete leave type"); setTypeToDelete(null); }); }} title="Delete leave type?" description={typeToDelete ? `Delete “${typeToDelete.name}”? Leave types with requests or balances are protected; you can edit them or mark inactive instead.` : ""} confirmLabel="Delete leave type" />
     </div>
   );
 }

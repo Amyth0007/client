@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { clsx } from "clsx";
+import { getApiActivitySnapshot, subscribeApiActivityChanges } from "../../services/api-client.js";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "danger" | "ghost" | "outline";
@@ -14,8 +15,50 @@ export function Button({
   size = "md",
   isLoading = false,
   disabled,
+  onClick,
+  type,
   ...props
 }: ButtonProps) {
+  const [asyncPending, setAsyncPending] = useState(false);
+  const lockedSourcesRef = useRef(new Set<string>());
+  const setSourceLocked = (source: string, locked: boolean) => {
+    if (locked) lockedSourcesRef.current.add(source);
+    else lockedSourcesRef.current.delete(source);
+    setAsyncPending(lockedSourcesRef.current.size > 0);
+  };
+  const handleClick: React.MouseEventHandler<HTMLButtonElement> = (event) => {
+    if (lockedSourcesRef.current.size || disabled || isLoading) return;
+
+    const baseline = getApiActivitySnapshot();
+    let sawRequest = false;
+    let releaseTimer: number | undefined;
+    const unsubscribe = subscribeApiActivityChanges((active, delta) => {
+      if (delta > 0) {
+        sawRequest = true;
+        if (releaseTimer !== undefined) window.clearTimeout(releaseTimer);
+        setSourceLocked("api", true);
+      } else if (sawRequest && active <= baseline) {
+        if (releaseTimer !== undefined) window.clearTimeout(releaseTimer);
+        releaseTimer = window.setTimeout(() => {
+          setSourceLocked("api", false);
+          unsubscribe();
+        }, 180);
+      }
+    });
+    window.setTimeout(() => { if (!sawRequest) unsubscribe(); }, 0);
+
+    const result: unknown = onClick
+      ? (onClick as (event: React.MouseEvent<HTMLButtonElement>) => unknown)(event)
+      : undefined;
+    if (result && typeof (result as Promise<unknown>).then === "function") {
+      setSourceLocked("promise", true);
+      void Promise.resolve(result).then(
+        () => setSourceLocked("promise", false),
+        () => setSourceLocked("promise", false),
+      );
+    }
+  };
+  const showLoading = isLoading || asyncPending;
   const base =
     "inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
 
@@ -36,10 +79,12 @@ export function Button({
   return (
     <button
       className={clsx(base, sizeClasses, variantClasses, className)}
-      disabled={disabled || isLoading}
+      disabled={disabled || showLoading}
+      type={type}
+      onClick={handleClick}
       {...props}
     >
-      {isLoading && (
+      {showLoading && (
         <svg
           className="h-4 w-4 animate-spin text-current"
           xmlns="http://www.w3.org/2000/svg"

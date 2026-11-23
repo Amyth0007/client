@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { toast } from "react-hot-toast";
-import { Mail, Plus } from "lucide-react";
+import { Eye, EyeOff, Mail, Plus } from "lucide-react";
 import { api } from "../../services/api-client.js";
 import { useAuth } from "../auth/AuthContext.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
@@ -17,13 +17,14 @@ import { ORGANIZATION_MODULES, organizationModuleEnabled, type OrganizationModul
 import { ACTION_PERMISSIONS } from "../platform/action-permission-registry.js";
 
 export function SettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const queryClient = useQueryClient();
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [employeeToReset, setEmployeeToReset] = useState<any>(null);
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [isSavingOrg, setIsSavingOrg] = useState(false);
+  const [isSavingGuideSetting, setIsSavingGuideSetting] = useState(false);
   const [isCreatingEmployee, setIsCreatingEmployee] = useState(false);
   const [isManagingGmail, setIsManagingGmail] = useState(false);
   const [permissionsTarget, setPermissionsTarget] = useState<any>(null);
@@ -31,6 +32,8 @@ export function SettingsPage() {
   const [actionPermissionDraft, setActionPermissionDraft] = useState<string[]>([]);
   const [scopeDraft, setScopeDraft] = useState<{ mode: "organization" | "selected"; departmentIds: string[]; locationIds: string[] }>({ mode: "organization", departmentIds: [], locationIds: [] });
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
+  const [updatingRoleEmployeeId, setUpdatingRoleEmployeeId] = useState<string | null>(null);
+  const [updatingStatusEmployeeId, setUpdatingStatusEmployeeId] = useState<string | null>(null);
   const [customRoleForm, setCustomRoleForm] = useState<{ id: string; name: string; description: string; modules: string[]; actions: string[] }>({ id: "", name: "", description: "", modules: [], actions: [] });
   const [settingsTab, setSettingsTab] = useState("organization");
 
@@ -47,7 +50,7 @@ export function SettingsPage() {
   const { data: gmailConnection, isLoading: gmailLoading } = useQuery({
     queryKey: ["gmail-connection"],
     queryFn: () => api.getGmailConnection(),
-    enabled: gmailEnabled && (user?.role === "org_admin" || user?.role === "accounts_manager"),
+    enabled: settingsTab === "organization" && gmailEnabled && (user?.role === "org_admin" || user?.role === "accounts_manager"),
   });
 
   useEffect(() => {
@@ -64,15 +67,15 @@ export function SettingsPage() {
   const { data: employeesData, isLoading: employeesLoading } = useQuery({
     queryKey: ["employees-list"],
     queryFn: () => (isOrgAdmin ? api.listEmployees({ limit: 50 }) : null),
-    enabled: isOrgAdmin,
+    enabled: isOrgAdmin && settingsTab === "team",
   });
-  const { data: customRoles = [] } = useQuery({ queryKey: ["custom-roles"], queryFn: () => api.listCustomRoles(), enabled: isOrgAdmin });
-  const { data: workforceDepartments = [] } = useQuery({ queryKey: ["workforce-departments"], queryFn: () => api.listWorkforceDepartments(), enabled: isOrgAdmin && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "workforce") });
-  const { data: attendanceConfig } = useQuery({ queryKey: ["attendance-config"], queryFn: () => api.getAttendanceConfig(), enabled: isOrgAdmin && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "attendance") });
+  const { data: customRoles = [] } = useQuery({ queryKey: ["custom-roles"], queryFn: () => api.listCustomRoles(), enabled: isOrgAdmin && (settingsTab === "team" || settingsTab === "roles") });
+  const { data: workforceDepartments = [] } = useQuery({ queryKey: ["workforce-departments"], queryFn: () => api.listWorkforceDepartments(), enabled: isOrgAdmin && settingsTab === "team" && Boolean(permissionsTarget) && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "workforce") });
+  const { data: attendanceConfig } = useQuery({ queryKey: ["attendance-config"], queryFn: () => api.getAttendanceConfig(), enabled: isOrgAdmin && settingsTab === "team" && Boolean(permissionsTarget) && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "attendance") });
 
   // Org form
-  const { register: regOrg, handleSubmit: handleOrgSubmit, setValue: setOrgValue, watch: watchOrg } = useForm({
-    values: {
+  const { register: regOrg, handleSubmit: handleOrgSubmit, setValue: setOrgValue, watch: watchOrg, reset: resetOrg, formState: { isDirty: orgDirty } } = useForm({
+    defaultValues: {
       name: organization?.name ?? "",
       legalName: organization?.legalName ?? "",
       address: organization?.address ?? "",
@@ -80,6 +83,11 @@ export function SettingsPage() {
       timezone: organization?.timezone ?? "Asia/Kolkata",
     },
   });
+
+  useEffect(() => {
+    if (!organization || orgDirty) return;
+    resetOrg({ name: organization.name ?? "", legalName: organization.legalName ?? "", address: organization.address ?? "", gstin: organization.gstin ?? "", timezone: organization.timezone ?? "Asia/Kolkata" });
+  }, [organization, orgDirty, resetOrg]);
 
   // Employee form
   const {
@@ -102,16 +110,38 @@ export function SettingsPage() {
   });
 
   const onSaveOrg = async (values: any) => {
+    const gstin = values.gstin?.trim().toUpperCase() ?? "";
+    if (gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/.test(gstin)) {
+      toast.error("Enter a valid 15-character GSTIN, or leave the field blank.");
+      return;
+    }
     setIsSavingOrg(true);
     try {
-      await api.updateOrganization(values);
+      const saved = await api.updateOrganization({ ...values, gstin: gstin || null });
+      queryClient.setQueryData(["organization-settings"], saved);
+      resetOrg({ name: saved.name ?? "", legalName: saved.legalName ?? "", address: saved.address ?? "", gstin: saved.gstin ?? "", timezone: saved.timezone ?? "Asia/Kolkata" });
+      await refreshProfile();
       toast.success("Organization profile updated!");
-      queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["organization-settings"] });
     } catch (err: any) {
       toast.error(err?.message || "Failed to update organization");
     } finally {
       setIsSavingOrg(false);
     }
+  };
+
+  const toggleGuides = async () => {
+    if (!organization || isSavingGuideSetting) return;
+    setIsSavingGuideSetting(true);
+    const showGuides = !(organization.showGuides ?? true);
+    try {
+      const updated = await api.updateOrganization({ showGuides });
+      queryClient.setQueryData(["organization-settings"], updated);
+      await refreshProfile();
+      toast.success(showGuides ? "Workflow guides enabled" : "Workflow guides hidden across the workspace");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update guide setting");
+    } finally { setIsSavingGuideSetting(false); }
   };
 
   const connectGmail = async () => {
@@ -194,26 +224,56 @@ export function SettingsPage() {
   };
 
   const handleToggleEmployeeStatus = async (emp: any) => {
+    if (updatingStatusEmployeeId) return;
     const nextStatus = emp.status === "active" ? "disabled" : "active";
+    setUpdatingStatusEmployeeId(emp.id);
     try {
       await api.updateEmployee(emp.id, { status: nextStatus });
       toast.success(`User marked ${nextStatus}`);
       queryClient.invalidateQueries({ queryKey: ["employees-list"] });
     } catch (err: any) {
       toast.error(err?.message || "Failed to change user status");
-    }
+    } finally { setUpdatingStatusEmployeeId(null); }
   };
 
   const handleChangeEmployeeRoleChoice = async (emp: any, choice: string) => {
+    if (updatingRoleEmployeeId) return false;
+    setUpdatingRoleEmployeeId(emp.id);
+    const isCustomSubadminRole = choice.startsWith("sub_admin:");
+    const expectedRole = isCustomSubadminRole ? "sub_admin" : choice;
+    const expectedCustomRoleId = isCustomSubadminRole ? choice.slice("sub_admin:".length) : null;
+    const applyEmployeeUpdate = (updated: any) => {
+      queryClient.setQueryData(["employees-list"], (current: any) => current
+        ? { ...current, data: current.data.map((item: any) => item.id === updated.id ? { ...item, ...updated } : item) }
+        : current);
+    };
     try {
-      const isCustomSubadminRole = choice.startsWith("sub_admin:");
-      await api.updateEmployee(emp.id, isCustomSubadminRole
-        ? { role: "sub_admin", customRoleId: choice.slice("sub_admin:".length) }
-        : { role: choice, ...(choice === "sub_admin" ? { customRoleId: null } : {}) });
+      const updated = await api.updateEmployee(emp.id, isCustomSubadminRole
+        ? { role: expectedRole, customRoleId: expectedCustomRoleId }
+        : { role: expectedRole, ...(expectedRole === "sub_admin" ? { customRoleId: null } : {}) });
+      applyEmployeeUpdate(updated);
       toast.success(`${emp.name}'s role updated`);
-      await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["employees-list"] }).catch(() => undefined);
       return true;
-    } catch (error: any) { toast.error(error?.message || "Failed to update employee role"); return false; }
+    } catch (error: any) {
+      // If the connection failed after the server committed, reconcile from the
+      // authoritative list before telling the admin the update itself failed.
+      try {
+        const latest = await api.listEmployees({ limit: 50 });
+        const serverEmployee = latest.data.find((item: any) => item.id === emp.id);
+        if (serverEmployee?.role === expectedRole && (serverEmployee.customRoleId ?? null) === expectedCustomRoleId) {
+          queryClient.setQueryData(["employees-list"], latest);
+          toast.success(`${emp.name}'s role updated`);
+          return true;
+        }
+        queryClient.setQueryData(["employees-list"], latest);
+      } catch {
+        // Keep the original mutation error; the reconciliation request is best effort.
+      }
+      toast.error(error?.message || "Failed to update employee role");
+      return false;
+    }
+    finally { setUpdatingRoleEmployeeId(null); }
   };
 
   const handleResetEmployeePassword = async (emp: any) => {
@@ -253,6 +313,15 @@ export function SettingsPage() {
         { id: "organization", label: "Organization" },
         ...(isOrgAdmin ? [{ id: "team", label: "Team & access" }, { id: "roles", label: "Subadmin roles" }] : []),
       ]} />
+
+      {settingsTab === "team" && isOrgAdmin && <Card title="Workspace guide display" subtitle="Control workflow guides across all workspace screens for your organization.">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div><p className="text-sm font-semibold text-slate-800">Workflow guides are {organization?.showGuides === false ? "hidden" : "visible"}</p><p className="text-xs text-slate-500">Team members can still hide an individual guide from its screen header.</p></div>
+          <Button type="button" size="sm" variant={organization?.showGuides === false ? "outline" : "secondary"} isLoading={isSavingGuideSetting} onClick={() => toggleGuides()}>
+            {organization?.showGuides === false ? <><Eye className="h-4 w-4" />Enable guides</> : <><EyeOff className="h-4 w-4" />Hide all guides</>}
+          </Button>
+        </div>
+      </Card>}
 
       {/* Organization Profile */}
       {settingsTab === "organization" && <Card title="Organization Profile" subtitle="Commercial identity and tenant details">
@@ -297,7 +366,7 @@ export function SettingsPage() {
 
             {isOrgAdmin && (
               <div className="flex justify-end pt-2">
-                <Button type="submit" isLoading={isSavingOrg}>
+                <Button type="submit" isLoading={isSavingOrg} disabled={!orgDirty || isSavingOrg}>
                   Save Profile Changes
                 </Button>
               </div>
@@ -319,8 +388,8 @@ export function SettingsPage() {
             </div>
           </div>
           {canManageGmail && <div className="flex flex-wrap gap-2">
-            {gmailConnection?.email && <Button size="sm" variant="outline" isLoading={isManagingGmail} onClick={() => void disconnectGmail()}>Disconnect Gmail</Button>}
-            {!gmailConnection?.connected && <Button size="sm" isLoading={isManagingGmail} onClick={() => void connectGmail()}>{gmailConnection?.status === "reauthorization_required" ? "Reconnect Gmail" : "Connect Gmail"}</Button>}
+            {gmailConnection?.email && <Button size="sm" variant="outline" isLoading={isManagingGmail} onClick={() => disconnectGmail()}>Disconnect Gmail</Button>}
+            {!gmailConnection?.connected && <Button size="sm" isLoading={isManagingGmail} onClick={() => connectGmail()}>{gmailConnection?.status === "reauthorization_required" ? "Reconnect Gmail" : "Connect Gmail"}</Button>}
           </div>}
         </div>
       </Card>}
@@ -364,13 +433,17 @@ export function SettingsPage() {
                         {emp.id === user?.id ? (
                           emp.customRoleName || (emp.role === "sub_admin" ? "Subadmin" : emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : emp.role === "employee" ? "Employee" : emp.role === "org_admin" ? "Organization Admin" : "Super Admin")
                         ) : (
+                          <>
                           <CustomSelect
                             portal
                             className="min-w-[190px]"
+                            disabled={updatingRoleEmployeeId === emp.id}
                             value={emp.role === "sub_admin" && emp.customRoleId ? `sub_admin:${emp.customRoleId}` : emp.role}
                             onChange={(event) => void handleChangeEmployeeRoleChoice(emp, event.target.value)}
                             options={[{ value: "org_admin", label: "Organization Admin" }, { value: "sub_admin", label: "Subadmin · Individual permissions" }, ...[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => ({ value: `sub_admin:${role.id}`, label: `Subadmin · ${role.name}` })), { value: "accounts_manager", label: "Account Manager" }, { value: "field_recovery", label: "Field Executive" }, { value: "guard", label: "Guard" }, { value: "employee", label: "Employee"}]}
                           />
+                          {updatingRoleEmployeeId === emp.id && <span className="ml-2 text-[10px] text-slate-500">Updating role…</span>}
+                          </>
                         )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 text-center">
@@ -381,17 +454,18 @@ export function SettingsPage() {
                       <td className="min-w-[250px] whitespace-nowrap px-4 py-4 text-right">
                         {emp.id !== user?.id && (
                           <>
-                          <button onClick={() => void handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>
+                          <button onClick={() => handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>
                           {emp.role !== "org_admin" && <button onClick={() => editEmployeePermissions(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Screens</button>}
                           <button
                             onClick={() => handleToggleEmployeeStatus(emp)}
+                            disabled={updatingStatusEmployeeId === emp.id}
                             className={`text-xs font-medium hover:underline ${
                               emp.status === "active"
                                 ? "text-rose-600 hover:text-rose-700"
                                 : "text-emerald-600 hover:text-emerald-700"
                             }`}
                           >
-                            {emp.status === "active" ? "Disable" : "Enable"}
+                            {updatingStatusEmployeeId === emp.id ? "Updating…" : emp.status === "active" ? "Disable" : "Enable"}
                           </button>
                           </>
                         )}
@@ -413,7 +487,7 @@ export function SettingsPage() {
           <fieldset className="rounded-xl border p-3 sm:col-span-2"><legend className="px-1 text-sm font-semibold">Allowed actions</legend>{customRoleForm.modules.length === 0 ? <p className="text-xs text-slate-500">Choose an enabled module first.</p> : <div className="grid gap-3 md:grid-cols-2">{ORGANIZATION_MODULES.filter((module) => customRoleForm.modules.includes(module.key)).sort((a, b) => a.name.localeCompare(b.name)).map((module) => { const moduleActions = ACTION_PERMISSIONS.filter((permission) => permission.module === module.key).sort((a, b) => a.name.localeCompare(b.name)); return moduleActions.length ? <div key={module.key} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3"><h3 className="mb-2 text-xs font-semibold text-slate-800">{module.name}</h3><div className="space-y-2">{moduleActions.map((permission) => <label key={permission.key} className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={customRoleForm.actions.includes(permission.key)} onChange={(event) => setCustomRoleForm((current) => ({ ...current, actions: event.target.checked ? [...current.actions, permission.key] : current.actions.filter((key) => key !== permission.key) }))} />{permission.name}</label>)}</div></div> : null; })}</div>}</fieldset>
           <div className="flex justify-end gap-2 sm:col-span-2">{customRoleForm.id && <Button type="button" variant="outline" onClick={() => setCustomRoleForm({ id: "", name: "", description: "", modules: [], actions: [] })}>Cancel edit</Button>}<Button type="submit">{customRoleForm.id ? "Save role" : "Create role"}</Button></div>
         </form>
-        <div className="mt-4 divide-y">{[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{role.name}</p><p className="text-xs text-slate-500">{role.description || "No description"} · {role.modulePermissions.length} module(s) · {role.actionPermissions.length} action(s)</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setCustomRoleForm({ id: role.id, name: role.name, description: role.description, modules: role.modulePermissions, actions: role.actionPermissions })}>Edit</Button><Button size="sm" variant="secondary" onClick={() => void archiveRole(role.id)}>Archive</Button></div></div>)}</div>
+        <div className="mt-4 divide-y">{[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{role.name}</p><p className="text-xs text-slate-500">{role.description || "No description"} · {role.modulePermissions.length} module(s) · {role.actionPermissions.length} action(s)</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setCustomRoleForm({ id: role.id, name: role.name, description: role.description, modules: role.modulePermissions, actions: role.actionPermissions })}>Edit</Button><Button size="sm" variant="secondary" onClick={() => archiveRole(role.id)}>Archive</Button></div></div>)}</div>
       </Card>}
 
       {/* Add Employee Modal */}
@@ -504,7 +578,7 @@ export function SettingsPage() {
           <Input label="Temporary password" type="password" required minLength={8} autoComplete="new-password" value={temporaryPassword} onChange={(event) => setTemporaryPassword(event.target.value)} helperText="At least 8 characters. The staff member can sign in with this password." />
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setEmployeeToReset(null)} disabled={isResettingPassword}>Cancel</Button>
-            <Button isLoading={isResettingPassword} onClick={() => void confirmResetEmployeePassword()}>Save password</Button>
+            <Button isLoading={isResettingPassword} onClick={() => confirmResetEmployeePassword()}>Save password</Button>
           </div>
         </div>
       </Modal>
@@ -513,7 +587,7 @@ export function SettingsPage() {
         <div className="space-y-4"><p className="text-xs text-slate-600">Screens must also be enabled for the organization by the platform administrator. Subadmins cannot manage organization settings or team access.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); const restrictedForSubAdmin = permissionsTarget?.role === "sub_admin" && module.key === "settings"; return <label key={module.key} className={`flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm ${enabledForOrganization && !restrictedForSubAdmin ? "" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" checked={permissionDraft.includes(module.key)} disabled={!enabledForOrganization || restrictedForSubAdmin} onChange={(event) => setPermissionDraft((current) => event.target.checked ? [...current, module.key] : current.filter((key) => key !== module.key))} /><span><span className="block font-medium">{module.name}{module.key === "attendance" && !enabledForOrganization ? " · disabled for organization" : restrictedForSubAdmin ? " · org admin only" : ""}</span><span className="text-xs text-slate-500">{module.description}</span></span></label>; })}</div>
           {permissionsTarget?.role === "sub_admin" && <fieldset className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Allowed actions</legend><p className="mb-2 text-xs text-slate-600">Action access is checked by the API and is limited to the selected modules.</p><div className="grid gap-2 sm:grid-cols-2">{ACTION_PERMISSIONS.filter((permission) => permissionDraft.includes(permission.module)).map((permission) => <label key={permission.key} className="flex items-center gap-2 rounded-lg bg-white p-2 text-xs text-slate-700"><input type="checkbox" checked={actionPermissionDraft.includes(permission.key)} onChange={(event) => setActionPermissionDraft((current) => event.target.checked ? [...current, permission.key] : current.filter((key) => key !== permission.key))} /><span>{permission.name}</span></label>)}</div></fieldset>}
           {permissionsTarget?.role === "sub_admin" && <fieldset className="rounded-xl border border-amber-100 bg-amber-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Workforce data scope</legend><p className="mb-3 text-xs text-slate-600">Organization-wide access is the default. Selected departments and locations are combined as an intersection; an unselected dimension stays unrestricted.</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={scopeDraft.mode === "organization"} onChange={() => setScopeDraft({ ...scopeDraft, mode: "organization" })} />All organization workforce records</label><label className="mt-2 flex items-center gap-2 text-sm"><input type="radio" checked={scopeDraft.mode === "selected"} onChange={() => setScopeDraft({ ...scopeDraft, mode: "selected" })} />Restrict to selected departments or locations</label>{scopeDraft.mode === "selected" && <div className="mt-3 grid gap-4 sm:grid-cols-2"><div><p className="mb-2 text-xs font-semibold">Departments</p>{workforceDepartments.length ? workforceDepartments.map((item: any) => <label key={item.id} className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={scopeDraft.departmentIds.includes(item.id)} onChange={(event) => setScopeDraft({ ...scopeDraft, departmentIds: event.target.checked ? [...scopeDraft.departmentIds, item.id] : scopeDraft.departmentIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <p className="text-xs text-slate-500">No departments available.</p>}</div><div><p className="mb-2 text-xs font-semibold">Work locations</p>{attendanceConfig?.locations?.length ? attendanceConfig.locations.map((item: any) => <label key={item.id} className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={scopeDraft.locationIds.includes(item.id)} onChange={(event) => setScopeDraft({ ...scopeDraft, locationIds: event.target.checked ? [...scopeDraft.locationIds, item.id] : scopeDraft.locationIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <p className="text-xs text-slate-500">Enable Attendance and configure office locations to scope by location.</p>}</div></div>}</fieldset>}
-          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button><Button isLoading={isSavingPermissions} onClick={() => void saveEmployeePermissions()}>Save access</Button></div></div>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button><Button isLoading={isSavingPermissions} onClick={() => saveEmployeePermissions()}>Save access</Button></div></div>
       </Modal>
     </div>
   );

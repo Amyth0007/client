@@ -79,6 +79,7 @@ export function WorkforceEmployeesPage() {
   const [importing, setImporting] = useState(false);
   const [importErrors, setImportErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [activeTab, setActiveTab] = useState("directory");
+  const [directoryOptionsLoaded, setDirectoryOptionsLoaded] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null);
@@ -91,15 +92,20 @@ export function WorkforceEmployeesPage() {
   const [showDesignationForm, setShowDesignationForm] = useState(false);
 
   const load = async () => {
+    if (activeTab === "import") { setLoading(false); return; }
     setLoading(true);
     try {
-      const [employees, departments, designations, accounts] = await Promise.all([
-        api.listWorkforceEmployees({ search, limit: 100 }),
-        api.listWorkforceDepartments(),
-        api.listWorkforceDesignations(),
-        canManageEmployees ? api.listWorkforceLoginAccounts() : Promise.resolve([]),
-      ]);
-      setData({ employees: employees.data, departments, designations, accounts });
+      if (activeTab === "directory") {
+        const employees = await api.listWorkforceEmployees({ search, limit: 100 });
+        setData((current) => ({ ...current, employees: employees.data }));
+      } else {
+        const [departments, designations] = await Promise.all([
+          api.listWorkforceDepartments(),
+          api.listWorkforceDesignations(),
+        ]);
+        setData((current) => ({ ...current, departments, designations }));
+        setDirectoryOptionsLoaded(true);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load employees");
     } finally {
@@ -108,8 +114,24 @@ export function WorkforceEmployeesPage() {
   };
 
   useEffect(() => {
-    void load();
-  }, [search, canManageEmployees]);
+    const timer = window.setTimeout(() => { void load(); }, activeTab === "directory" && search ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [search, canManageEmployees, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "directory" || !showForm || directoryOptionsLoaded) return;
+    let cancelled = false;
+    void Promise.all([
+      api.listWorkforceDepartments(),
+      api.listWorkforceDesignations(),
+      canManageEmployees ? api.listWorkforceLoginAccounts() : Promise.resolve([]),
+    ]).then(([departments, designations, accounts]) => {
+      if (cancelled) return;
+      setData((current) => ({ ...current, departments, designations, accounts }));
+      setDirectoryOptionsLoaded(true);
+    }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load employee form options"));
+    return () => { cancelled = true; };
+  }, [activeTab, showForm, directoryOptionsLoaded, canManageEmployees]);
 
   const submitEmployee = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -411,7 +433,7 @@ export function WorkforceEmployeesPage() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" isLoading={saving}>
                     {saving ? "Saving…" : editingEmployee ? "Save Changes" : "Create Profile"}
                   </Button>
                 </div>
@@ -557,7 +579,7 @@ export function WorkforceEmployeesPage() {
                     placeholder="e.g. Sales, Engineering, HR"
                   />
                   <div className="flex gap-2">
-                    <Button type="submit" size="sm" disabled={saving}>
+                    <Button type="submit" size="sm" isLoading={saving}>
                       Save
                     </Button>
                     <Button
@@ -611,7 +633,7 @@ export function WorkforceEmployeesPage() {
                     placeholder="e.g. Senior Engineer, Field Executive"
                   />
                   <div className="flex gap-2">
-                    <Button type="submit" size="sm" disabled={saving}>
+                    <Button type="submit" size="sm" isLoading={saving}>
                       Save
                     </Button>
                     <Button

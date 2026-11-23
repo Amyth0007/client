@@ -203,7 +203,7 @@ function AttendanceWorkspace() {
   const { data: todayRecords, isLoading: todayLoading } = useQuery({
     queryKey: ["attendance-records", user?.organizationId, user?.id, today, today, "", "", ""],
     queryFn: async () => (await api.listAttendanceRecords({ from: today, to: today, page: 1, limit: 100 })).data,
-    enabled: isEnabled,
+    enabled: isEnabled && activeTab === "today",
   });
   const currentRecord = todayRecords?.find((record) => record.employeeId === user?.id) ?? null;
   const activeLocations = config?.locations.filter((location) => location.status === "active") ?? [];
@@ -213,12 +213,12 @@ function AttendanceWorkspace() {
   const { data: dashboard } = useQuery({
     queryKey: ["attendance-dashboard", user?.organizationId, today],
     queryFn: () => api.getAttendanceDashboard(today),
-    enabled: isEnabled && canViewAllRecords,
+    enabled: isEnabled && canViewAllRecords && activeTab === "today",
   });
   const { data: employees } = useQuery({
     queryKey: ["attendance-employees", user?.organizationId],
     queryFn: () => api.listAttendanceEmployees(),
-    enabled: isEnabled && (canViewAllRecords || canAdjustAttendance),
+    enabled: isEnabled && (canViewAllRecords || canAdjustAttendance) && (activeTab === "today" || activeTab === "adjust"),
   });
   const { data: recordsResult, isLoading: recordsLoading } = useQuery({
     queryKey: [
@@ -240,12 +240,12 @@ function AttendanceWorkspace() {
         page: 1,
         limit: 100,
       }),
-    enabled: isEnabled,
+    enabled: isEnabled && activeTab === "records",
   });
   const { data: corrections } = useQuery({
     queryKey: ["attendance-corrections", canReviewCorrections ? "all" : user?.id],
     queryFn: async () => (await api.listAttendanceCorrections(!canReviewCorrections, { page: 1, limit: 100 })).data,
-    enabled: isEnabled,
+    enabled: isEnabled && activeTab === "corrections",
   });
 
   const pendingCorrectionsCount = corrections?.filter((c) => c.status === "pending").length ?? 0;
@@ -893,7 +893,7 @@ function AttendanceWorkspace() {
                                 className="h-20 w-20 rounded-lg border border-slate-200 object-cover shadow-xs"
                               />
                             )}
-                            <Button type="button" size="sm" variant="outline" onClick={() => void openCamera()}>
+                            <Button type="button" size="sm" variant="outline" onClick={() => openCamera()}>
                               <Camera className="h-4 w-4" />
                               {capturedPhoto ? "Retake photo" : "Open camera"}
                             </Button>
@@ -1001,7 +1001,7 @@ function AttendanceWorkspace() {
                               className="h-20 w-20 rounded-lg border border-slate-200 object-cover"
                             />
                           )}
-                          <Button type="button" size="sm" variant="outline" onClick={() => void openCamera()}>
+                          <Button type="button" size="sm" variant="outline" onClick={() => openCamera()}>
                             <Camera className="h-4 w-4" />
                             {capturedPhoto ? "Retake photo" : "Open camera"}
                           </Button>
