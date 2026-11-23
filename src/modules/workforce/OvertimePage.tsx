@@ -259,7 +259,7 @@ export function OvertimePage() {
 
             <CustomSelect
               label="Overtime Policy"
-              required
+              required 
               value={entry.policyId}
               onChange={(e) => setEntry({ ...entry, policyId: e.target.value })}
               placeholder="Choose the policy for this entry"
