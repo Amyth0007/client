@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Paged } from "../../components/common/Pagination.js";
 import toast from "react-hot-toast";
 import {
   CheckCircle2,
@@ -63,7 +64,8 @@ export function OvertimePage() {
     setLoading(true);
     try {
       const result = await api.getOvertime(tab === "policies" ? "policies" : "entries");
-      setData(result);
+      // Keep the other section's data: the entries call returns no policies (and vice versa).
+      setData((prev: any) => tab === "policies" ? { ...prev, policies: result.policies ?? [] } : { ...prev, entries: result.entries ?? [] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load overtime");
     } finally {
@@ -78,7 +80,11 @@ export function OvertimePage() {
   useEffect(() => {
     if (!showEntryForm || !(activeTab === "entries" || activeTab === "my-overtime")) return;
     let cancelled = false;
-    void api.listWorkforceEmployees({ limit: 100, status: "active" }).then((people) => {
+    // The policy dropdown needs policies, which the entries list does not include.
+    void api.getOvertime("policies").then((result) => {
+      if (!cancelled) setData((prev: any) => ({ ...prev, policies: result.policies ?? [] }));
+    }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load overtime policies"));
+    if (isAdmin) void api.listWorkforceEmployees({ limit: 100, status: "active" }).then((people) => {
       if (!cancelled) setEmployees(people.data);
     }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load employees"));
     return () => { cancelled = true; };
@@ -274,7 +280,7 @@ export function OvertimePage() {
             <EmptyState icon={Timer} title="No overtime entries" description="Record the first overtime entry using the button above." />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left text-sm">
+              <Paged items={data.entries} initialPageSize={25}>{(rows) => (<table className="w-full min-w-[900px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                     <th className="px-4 py-3">Employee</th>
@@ -287,7 +293,7 @@ export function OvertimePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.entries.map((item: any) => (
+                  {rows.map((item: any) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {item.employee?.employeeNumber} · {item.employee?.firstName} {item.employee?.lastName}
@@ -328,7 +334,7 @@ export function OvertimePage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table>)}</Paged>
             </div>
           )}
         </Card>

@@ -314,6 +314,7 @@ export const api = {
     return request<any[]>(`/workforce/employees?${query}`);
   },
   listWorkforceLoginAccounts: async () => (await request<any[]>("/workforce/login-accounts")).data,
+  importTeamMembersAsEmployees: async () => (await request<{ createdCount: number; skippedCount: number }>("/workforce/employees/import-team", { method: "POST" })).data,
   createWorkforceEmployee: async (data: Record<string, unknown>) => {
     const res = await request<any>("/workforce/employees", { method: "POST", body: JSON.stringify(data) });
     return res.data;

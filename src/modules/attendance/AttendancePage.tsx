@@ -40,40 +40,9 @@ import { ConfirmDialog } from "../../components/common/ConfirmDialog.js";
 import { GuardAttendancePage } from "./GuardAttendancePage.js";
 import { organizationModuleEnabled, userCanAccessModule } from "../platform/module-registry.js";
 import { Link } from "react-router";
-
-function dateInZone(timeZone: string, date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-function zonedDateTimeToIso(value: string, timeZone: string) {
-  const [datePart, timePart] = value.split("T");
-  const [year, month, day] = datePart.split("-").map(Number);
-  const [hour, minute] = timePart.split(":").map(Number);
-  const targetWallTime = Date.UTC(year, month - 1, day, hour, minute);
-  let guess = targetWallTime;
-  for (let pass = 0; pass < 2; pass += 1) {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(new Date(guess));
-    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
-    const actualWallTime = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
-    guess += targetWallTime - actualWallTime;
-  }
-  return new Date(guess).toISOString();
-}
+import { dateInZone, zonedDateTimeToIso } from "./time-zone.js";
+import { AttendanceCalendarEditor } from "./AttendanceCalendarEditor.js";
+import { Pagination, usePagination } from "../../components/common/Pagination.js";
 
 function displayTime(value: string | null | undefined, timeZone: string) {
   if (!value) return "—";
@@ -158,16 +127,12 @@ function AttendanceWorkspace() {
   const [filterEmployeeId, setFilterEmployeeId] = useState("");
   const [filterOfficeId, setFilterOfficeId] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsPageSize, setRecordsPageSize] = useState(25);
   const [locationForm, setLocationForm] = useState<LocationForm>(emptyLocation);
   const [locatingOffice, setLocatingOffice] = useState(false);
   const [policyForm, setPolicyForm] = useState<AttendancePolicy | null>(null);
   const [activeTab, setActiveTab] = useState("today");
-  const [adjustEmployeeId, setAdjustEmployeeId] = useState("");
-  const [adjustDate, setAdjustDate] = useState(today);
-  const [adjustStatus, setAdjustStatus] = useState<"present" | "half_day" | "absent" | "leave">("present");
-  const [adjustCheckIn, setAdjustCheckIn] = useState("");
-  const [adjustCheckOut, setAdjustCheckOut] = useState("");
-  const [adjustReason, setAdjustReason] = useState("");
 
   const { data: config, isLoading: configLoading, isError: configError } = useQuery({
     queryKey: ["attendance-config", user?.organizationId],
@@ -218,7 +183,7 @@ function AttendanceWorkspace() {
   const { data: employees } = useQuery({
     queryKey: ["attendance-employees", user?.organizationId],
     queryFn: () => api.listAttendanceEmployees(),
-    enabled: isEnabled && (canViewAllRecords || canAdjustAttendance) && (activeTab === "today" || activeTab === "adjust"),
+    enabled: isEnabled && (canViewAllRecords || canAdjustAttendance) && activeTab === "today",
   });
   const { data: recordsResult, isLoading: recordsLoading } = useQuery({
     queryKey: [
@@ -229,6 +194,8 @@ function AttendanceWorkspace() {
       filterEmployeeId,
       filterOfficeId,
       filterStatus,
+      recordsPage,
+      recordsPageSize,
     ],
     queryFn: () =>
       api.listAttendanceRecords({
@@ -237,17 +204,19 @@ function AttendanceWorkspace() {
         employeeId: canViewAllRecords ? filterEmployeeId || undefined : user?.id,
         officeLocationId: filterOfficeId || undefined,
         status: filterStatus || undefined,
-        page: 1,
-        limit: 100,
+        page: recordsPage,
+        limit: recordsPageSize,
       }),
     enabled: isEnabled && activeTab === "records",
   });
+  useEffect(() => { setRecordsPage(1); }, [fromDate, toDate, filterEmployeeId, filterOfficeId, filterStatus]);
   const { data: corrections } = useQuery({
     queryKey: ["attendance-corrections", canReviewCorrections ? "all" : user?.id],
     queryFn: async () => (await api.listAttendanceCorrections(!canReviewCorrections, { page: 1, limit: 100 })).data,
     enabled: isEnabled && activeTab === "corrections",
   });
 
+  const correctionPages = usePagination(corrections, 10);
   const pendingCorrectionsCount = corrections?.filter((c) => c.status === "pending").length ?? 0;
 
   const punchMutation = useMutation({
@@ -428,34 +397,6 @@ function AttendanceWorkspace() {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const adjustmentMutation = useMutation({
-    mutationFn: () => {
-      if (!adjustEmployeeId || !adjustDate || adjustReason.trim().length < 3)
-        throw new Error("Choose an employee, date, and reason.");
-      if (adjustStatus === "present" && !adjustCheckIn)
-        throw new Error("Enter the manual check-in time for present attendance.");
-      return api.adjustAttendance({
-        employeeId: adjustEmployeeId,
-        attendanceDate: adjustDate,
-        status: adjustStatus,
-        ...(adjustStatus === "present" || adjustStatus === "half_day"
-          ? {
-              ...(adjustCheckIn ? { checkInAt: zonedDateTimeToIso(adjustCheckIn, timeZone) } : {}),
-              ...(adjustCheckOut ? { checkOutAt: zonedDateTimeToIso(adjustCheckOut, timeZone) } : {}),
-            }
-          : {}),
-        reason: adjustReason.trim(),
-      });
-    },
-    onSuccess: async () => {
-      toast.success("Attendance updated and audit logged");
-      setAdjustReason("");
-      await queryClient.invalidateQueries({ queryKey: ["attendance-records"] });
-      await queryClient.invalidateQueries({ queryKey: ["attendance-dashboard"] });
-    },
-    onError: (error: Error) => toast.error(error.message),
-  });
-
   const openCamera = async () => {
     try {
       if (!navigator.mediaDevices?.getUserMedia)
@@ -588,7 +529,7 @@ function AttendanceWorkspace() {
   const tabs = [
     { id: "today", label: canViewAllRecords ? "Today & Overview" : "Clock In / Today", icon: CalendarCheck },
     { id: "records", label: canViewAllRecords ? "Attendance Records" : "My History", icon: History },
-    ...(canAdjustAttendance ? [{ id: "adjust", label: "Manual Adjustments", icon: Edit3 }] : []),
+    ...(canAdjustAttendance ? [{ id: "adjust", label: "Attendance Correction", icon: Edit3 }] : []),
     {
       id: "corrections",
       label: canReviewCorrections ? "Corrections Queue" : "My Corrections",
@@ -1271,91 +1212,13 @@ function AttendanceWorkspace() {
               </table>
             </div>
           )}
+          <Pagination page={recordsPage} pageSize={recordsPageSize} total={(recordsResult as any)?.meta?.total ?? recordsResult?.data.length ?? 0} onPageChange={setRecordsPage} onPageSizeChange={(size) => { setRecordsPageSize(size); setRecordsPage(1); }} className="mt-4" />
         </Card>
       )}
 
-      {/* TAB 3: MANUAL ADJUSTMENTS */}
+      {/* TAB 3: ATTENDANCE CORRECTION (calendar) */}
       {canAdjustAttendance && activeTab === "adjust" && (
-        <Card
-          title="Manual Attendance Adjustment"
-          subtitle="Administratively record or adjust attendance for employees. Changes are audit-logged while retaining device punch history."
-        >
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
-            <h3 className="text-sm font-semibold text-slate-900">Record New Adjustment</h3>
-            <p className="mb-4 mt-1 text-xs text-slate-600">
-              Set Present, Absent, or Leave for an employee. Required for manual overrides, on-duty visits, or missed card events.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <CustomSelect
-                label="Select Employee"
-                value={adjustEmployeeId}
-                onChange={(event) => setAdjustEmployeeId(event.target.value)}
-                options={[
-                  { value: "", label: "Select employee" },
-                  ...(employees?.data ?? []).map((employee: { id: string; name: string }) => ({
-                    value: employee.id,
-                    label: employee.name,
-                  })),
-                ]}
-                required
-              />
-              <Input
-                label="Attendance Date"
-                type="date"
-                value={adjustDate}
-                onChange={(event) => setAdjustDate(event.target.value)}
-                required
-              />
-              <CustomSelect
-                label="Attendance Status"
-                value={adjustStatus}
-                onChange={(event) => setAdjustStatus(event.target.value as "present" | "half_day" | "absent" | "leave")}
-                options={[
-                  { value: "present", label: "Present" },
-                  { value: "half_day", label: "Half day" },
-                  { value: "absent", label: "Absent" },
-                  { value: "leave", label: "On Leave" },
-                ]}
-                required
-              />
-              {(adjustStatus === "present" || adjustStatus === "half_day") && (
-                <>
-                  <Input
-                    label={adjustStatus === "present" ? "Manual Check-In Time" : "Manual Check-In Time (optional)"}
-                    type="datetime-local"
-                    value={adjustCheckIn}
-                    onChange={(event) => setAdjustCheckIn(event.target.value)}
-                    required={adjustStatus === "present"}
-                  />
-                  <Input
-                    label="Manual Check-Out Time (Optional)"
-                    type="datetime-local"
-                    value={adjustCheckOut}
-                    onChange={(event) => setAdjustCheckOut(event.target.value)}
-                  />
-                </>
-              )}
-              <div className="sm:col-span-2 lg:col-span-3">
-                <Input
-                  label="Adjustment Reason (Required for audit log)"
-                  value={adjustReason}
-                  onChange={(event) => setAdjustReason(event.target.value)}
-                  placeholder="e.g., Client on-site visit, hardware punch failure verified by manager"
-                  required
-                />
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Button
-                size="sm"
-                isLoading={adjustmentMutation.isPending}
-                onClick={() => adjustmentMutation.mutate()}
-              >
-                Save Attendance Adjustment
-              </Button>
-            </div>
-          </div>
-        </Card>
+        <AttendanceCalendarEditor policy={config?.policy} timeZone={timeZone} today={today} organizationId={user?.organizationId} />
       )}
 
       {/* TAB 4: CORRECTIONS QUEUE */}
@@ -1372,7 +1235,7 @@ function AttendanceWorkspace() {
             />
           ) : (
             <div className="space-y-3">
-              {corrections?.map((correction) => (
+              {correctionPages.pageItems.map((correction) => (
                 <div key={correction.id} className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-2xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1457,6 +1320,7 @@ function AttendanceWorkspace() {
                   )}
                 </div>
               ))}
+              <Pagination page={correctionPages.page} pageSize={correctionPages.pageSize} total={correctionPages.total} onPageChange={correctionPages.setPage} onPageSizeChange={correctionPages.setPageSize} />
             </div>
           )}
         </Card>

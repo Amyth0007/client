@@ -10,6 +10,7 @@ import {
   UserCog,
   UserPlus,
   Users,
+  UsersRound,
 } from "lucide-react";
 import { api } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
@@ -21,6 +22,8 @@ import { Input } from "../../components/common/Input.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
 import { Tabs } from "../../components/common/Tabs.js";
 import { Badge } from "../../components/common/Badge.js";
+import { ConfirmDialog } from "../../components/common/ConfirmDialog.js";
+import { Pagination } from "../../components/common/Pagination.js";
 import { useAuth } from "../auth/AuthContext.js";
 
 type Employee = {
@@ -45,7 +48,7 @@ type DirectoryData = {
   employees: Employee[];
   departments: any[];
   designations: any[];
-  accounts: Array<{ id: string; name: string; email: string; linkedEmployeeId: string | null }>;
+  accounts: Array<{ id: string; name: string; email: string; role?: string; status?: string; linkedEmployeeId: string | null }>;
 };
 
 const emptyForm = {
@@ -80,6 +83,12 @@ export function WorkforceEmployeesPage() {
   const [importErrors, setImportErrors] = useState<Array<{ row: number; message: string }>>([]);
   const [activeTab, setActiveTab] = useState("directory");
   const [directoryOptionsLoaded, setDirectoryOptionsLoaded] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalEmployees, setTotalEmployees] = useState(0);
+  const [confirmTeamImport, setConfirmTeamImport] = useState(false);
+  const [importingTeam, setImportingTeam] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any | null>(null);
@@ -96,8 +105,9 @@ export function WorkforceEmployeesPage() {
     setLoading(true);
     try {
       if (activeTab === "directory") {
-        const employees = await api.listWorkforceEmployees({ search, limit: 100 });
+        const employees: any = await api.listWorkforceEmployees({ search, page, limit: pageSize });
         setData((current) => ({ ...current, employees: employees.data }));
+        setTotalEmployees(employees.meta?.total ?? employees.data.length);
       } else {
         const [departments, designations] = await Promise.all([
           api.listWorkforceDepartments(),
@@ -116,22 +126,49 @@ export function WorkforceEmployeesPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, activeTab === "directory" && search ? 300 : 0);
     return () => window.clearTimeout(timer);
-  }, [search, canManageEmployees, activeTab]);
+  }, [search, canManageEmployees, activeTab, page, pageSize]);
 
+  useEffect(() => { setPage(1); }, [search]);
+
+  // Department/designation names are shown in the directory table, so load them with the directory.
   useEffect(() => {
-    if (activeTab !== "directory" || !showForm || directoryOptionsLoaded) return;
+    if (activeTab !== "directory" || directoryOptionsLoaded) return;
     let cancelled = false;
-    void Promise.all([
-      api.listWorkforceDepartments(),
-      api.listWorkforceDesignations(),
-      canManageEmployees ? api.listWorkforceLoginAccounts() : Promise.resolve([]),
-    ]).then(([departments, designations, accounts]) => {
+    void Promise.all([api.listWorkforceDepartments(), api.listWorkforceDesignations()]).then(([departments, designations]) => {
       if (cancelled) return;
-      setData((current) => ({ ...current, departments, designations, accounts }));
+      setData((current) => ({ ...current, departments, designations }));
       setDirectoryOptionsLoaded(true);
-    }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load employee form options"));
+    }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [activeTab, showForm, directoryOptionsLoaded, canManageEmployees]);
+  }, [activeTab, directoryOptionsLoaded]);
+
+  // Login accounts are loaded separately (and refreshed each time the form opens) so the edit form
+  // always shows the account currently linked to the employee.
+  useEffect(() => {
+    if (activeTab !== "directory" || !showForm || !canManageEmployees) return;
+    let cancelled = false;
+    void api.listWorkforceLoginAccounts().then((accounts) => {
+      if (cancelled) return;
+      setData((current) => ({ ...current, accounts }));
+      setAccountsLoaded(true);
+    }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load login accounts"));
+    return () => { cancelled = true; };
+  }, [activeTab, showForm, editingEmployee?.id, canManageEmployees]);
+
+  const importTeamMembers = async () => {
+    setImportingTeam(true);
+    try {
+      const result = await api.importTeamMembersAsEmployees();
+      toast.success(result.createdCount ? `${result.createdCount} team member${result.createdCount === 1 ? "" : "s"} added as employees${result.skippedCount ? ` · ${result.skippedCount} already existed` : ""}` : "All team members already have employee profiles");
+      setConfirmTeamImport(false);
+      setAccountsLoaded(false);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not import team members");
+    } finally {
+      setImportingTeam(false);
+    }
+  };
 
   const submitEmployee = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -287,16 +324,22 @@ export function WorkforceEmployeesPage() {
               />
             </div>
             {canManageEmployees && (
-              <Button
-                onClick={() => {
-                  setEditingEmployee(null);
-                  setForm(emptyForm);
-                  setShowForm(!showForm);
-                }}
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                Add Employee
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" onClick={() => setConfirmTeamImport(true)} title="Create employee profiles from your existing team member login accounts">
+                  <UsersRound className="mr-2 h-4 w-4" />
+                  Import all existing team members
+                </Button>
+                <Button
+                  onClick={() => {
+                    setEditingEmployee(null);
+                    setForm(emptyForm);
+                    setShowForm(!showForm);
+                  }}
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add Employee
+                </Button>
+              </div>
             )}
           </div>
 
@@ -397,9 +440,12 @@ export function WorkforceEmployeesPage() {
                 <CustomSelect
                   label="Linked Login Account (optional)"
                   value={form.userId}
-                  onChange={(e) => setForm({ ...form, userId: e.target.value })}
+                  onChange={(e) => {
+                    const account = data.accounts.find((item) => item.id === e.target.value);
+                    setForm({ ...form, userId: e.target.value, email: form.email || account?.email || "" });
+                  }}
                   options={[
-                    { value: "", label: "No login account" },
+                    { value: "", label: accountsLoaded || !form.userId ? "No login account" : "Loading linked account…" },
                     ...data.accounts
                       .filter(
                         (account) =>
@@ -407,8 +453,8 @@ export function WorkforceEmployeesPage() {
                       )
                       .map((account) => ({
                         value: account.id,
-                        label: account.name,
-                        sublabel: account.email,
+                        label: account.status === "disabled" ? `${account.name} (disabled)` : account.name,
+                        sublabel: [account.email, account.role?.replaceAll("_", " ")].filter(Boolean).join(" · "),
                       })),
                   ]}
                 />
@@ -462,7 +508,7 @@ export function WorkforceEmployeesPage() {
                 <Users className="h-4 w-4 text-slate-500" />
                 <h3 className="text-sm font-semibold text-slate-900">
                   Employee Directory{" "}
-                  <span className="ml-1 text-slate-400">{data.employees.length}</span>
+                  <span className="ml-1 text-slate-400">{totalEmployees}</span>
                 </h3>
               </div>
             </div>
@@ -497,6 +543,7 @@ export function WorkforceEmployeesPage() {
                             {employee.employeeNumber}
                             {employee.email ? ` · ${employee.email}` : ""}
                           </p>
+                          {employee.userId && <span className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">App login linked</span>}
                         </td>
                         <td className="px-4 py-3 text-slate-600">
                           {data.departments.find((d) => d._id === employee.departmentId)?.name ?? "—"}
@@ -550,7 +597,16 @@ export function WorkforceEmployeesPage() {
                 </table>
               </div>
             )}
+            <Pagination page={page} pageSize={pageSize} total={totalEmployees} onPageChange={setPage} onPageSizeChange={(size) => { setPageSize(size); setPage(1); }} />
           </Card>
+          <ConfirmDialog
+            isOpen={confirmTeamImport}
+            onClose={() => setConfirmTeamImport(false)}
+            title="Import all existing team members?"
+            description="Every active team member login (Settings → Team) without an employee profile becomes an employee. Their login email is used as the employee email and the login is linked to the profile. Members who already have a profile are skipped. You can edit employee IDs, departments and other details afterwards."
+            confirmLabel={importingTeam ? "Importing…" : "Import team members"}
+            onConfirm={importTeamMembers}
+          />
         </div>
       )}
 

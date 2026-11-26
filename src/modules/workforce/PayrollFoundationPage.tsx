@@ -24,6 +24,7 @@ import { PageHeader } from "../../components/common/PageHeader.js";
 import { Tabs } from "../../components/common/Tabs.js";
 import { Badge } from "../../components/common/Badge.js";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog.js";
+import { Paged } from "../../components/common/Pagination.js";
 import { useAuth } from "../auth/AuthContext.js";
 
 export async function downloadEmployeePayslip(run: any, employee: any, company?: any) {
@@ -32,7 +33,6 @@ export async function downloadEmployeePayslip(run: any, employee: any, company?:
   const pdfMoney = (minor: number, currency: string) => `${currency || "INR"} ${(Number(minor || 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const companyName = company?.legalName || company?.name || "Company";
   const employeeName = employee.employeeName || "Employee";
-  const status = employee.paidMinor >= employee.netPayMinor ? "Paid" : employee.paidMinor > 0 ? "Partially paid" : "Unpaid";
   doc.setFillColor(20, 48, 85); doc.rect(0, 0, 210, 50, "F");
   doc.setFillColor(32, 177, 166); doc.roundedRect(15, 13, 3, 25, 1, 1, "F");
   doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(15); doc.text(companyName, 23, 20);
@@ -51,7 +51,6 @@ export async function downloadEmployeePayslip(run: any, employee: any, company?:
   doc.text(`Department  ${employee.departmentName || "—"}`, 108, 68);
   doc.text(`Designation  ${employee.designationName || "—"}`, 108, 77);
   doc.text(`Joining date  ${employee.joiningDate || "—"}`, 108, 84);
-  doc.text(`Pay status  ${status}`, 108, 91);
 
   const absentDays = employee.attendanceDays?.filter((day: any) => day.status === "absent") ?? [];
   doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.text("Attendance summary", 16, 116);
@@ -262,14 +261,14 @@ export function PayrollFoundationPage() {
     <div className="space-y-6">
       <PageHeader
         title="Payroll & Compensation"
-        description="Set employee pay, choose any date range, review the preview, then approve and record payments."
+        description="Set employee pay, choose any date range, review the preview, then approve and finalize."
       />
 
       {/* Help Guide */}
       <HelpGuide
         title="Payroll Engine — Full Workflow"
-        description="A payroll run totals each employee’s pay for chosen dates, creates a payslip, and tracks approval and payment."
-        whyThisExists="The run calculates what the company owes each employee and creates a dated pay record. It does not transfer money; pay employees through your bank or payment method, then record each payment here."
+        description="A payroll run totals each employee’s pay for chosen dates, creates a payslip, and tracks approval and locking."
+        whyThisExists="The run calculates what the company owes each employee and creates a dated pay record. It does not transfer money; pay employees through your own bank or payment method after it is finalized and locked."
         steps={[
           {
             step: 1,
@@ -304,7 +303,7 @@ export function PayrollFoundationPage() {
           {
             step: 6,
             title: "Approve & Finalize",
-            description: "Submit for approval → Approve → Finalize & Lock → Record individual payments.",
+            description: "Submit for approval → Approve → Finalize & Lock → Download payslips.",
             badge: "Payroll",
           },
         ]}
@@ -315,10 +314,10 @@ export function PayrollFoundationPage() {
           { label: "Missing a record", value: "If a draft preview is missing attendance or earnings, add the record first, cancel the unsubmitted preview, then create a fresh preview for the same dates." },
           { label: "Dated Snapshots", value: "Pay structure values are snapshotted at the time of payroll run creation." },
           { label: "Revisions", value: "Finalized runs with no payments can be revised — a replacement run is created." },
-          { label: "Lock on Finalize", value: "Once finalized, the run is immutable. Payment entries only record against it." },
+          { label: "Lock on Finalize", value: "Once finalized, the run is immutable. Pay employees through your own bank or payment method." },
         ]}
         roles={[
-          { role: "Org Admin", summary: "Full control — configure structures, run payroll, approve, finalize, and record payments." },
+          { role: "Org Admin", summary: "Full control — configure structures, run payroll, approve, finalize, and download payslips." },
           { role: "Sub-admin with payroll access", summary: "Same as admin if workforce.payroll permission is granted." },
         ]}
       />
@@ -392,7 +391,7 @@ export function PayrollFoundationPage() {
                                   : "neutral"
                           }
                         >
-                          {run.state.replaceAll("_", " ")}
+                          {["partially_paid", "paid"].includes(run.state) ? "finalized" : run.state.replaceAll("_", " ")}
                         </Badge>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">Period: {run.periodStart} – {run.periodEnd}</p>
@@ -507,29 +506,25 @@ export function PayrollFoundationPage() {
 
                   {/* Employee Breakdown Table */}
                   <div className="mt-4 space-y-3 md:hidden">
-                    {run.employees.map((employee: any) => <article key={employee.employeeId} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <Paged items={run.employees} initialPageSize={10}>{(rows: any[]) => <>{rows.map((employee: any) => <article key={employee.employeeId} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h4 className="truncate text-sm font-semibold text-slate-900">{employee.employeeNumber} · {employee.employeeName}</h4>{employee.dailyRateMinor != null && <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-indigo-700">Monthly daily rate <InfoTip label="Monthly daily rate">{formatMoney(employee.dailyRateMinor, run.currency)} per scheduled workday. This is monthly pay divided by {employee.scheduledWorkDays} scheduled workdays, excluding weekly holidays.</InfoTip></span>}</div><button type="button" className="shrink-0 text-xs font-semibold text-indigo-700" onClick={() => { setAttendanceReview({ run, employee }); setSelectedAttendanceDate(employee.attendanceDays?.find((day: any) => day.status !== "day_off")?.date ?? null); }}>Review days</button></div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-slate-50 p-2"><span className="block text-slate-500">Gross</span><strong className="text-slate-900">{formatMoney(employee.grossEarningsMinor, run.currency)}</strong></div><div className="rounded-lg bg-rose-50 p-2"><span className="block text-rose-600">Deductions</span><strong className="text-rose-800">{formatMoney(employee.deductionsMinor, run.currency)}</strong></div><div className="rounded-lg bg-indigo-50 p-2"><span className="block text-indigo-600">Net pay</span><strong className="text-indigo-900">{formatMoney(employee.netPayMinor, run.currency)}</strong></div><div className="rounded-lg bg-emerald-50 p-2"><span className="block text-emerald-600">Paid</span><strong className="text-emerald-800">{formatMoney(employee.paidMinor, run.currency)}</strong></div></div>
-                      {(run.state === "finalized" || run.state === "partially_paid") && employee.paidMinor < employee.netPayMinor && <form className="mt-3 grid grid-cols-2 gap-2" onSubmit={async (e) => { e.preventDefault(); const form = e.currentTarget; const amount = Math.round(Number(new FormData(form).get("amountRupees")) * 100); const reference = String(new FormData(form).get("reference") || ""); try { await api.recordPayrollPayment(run.id, { employeeId: employee.employeeId, amountMinor: amount, reference }); await load(); toast.success("Payment recorded"); } catch (error) { toast.error(error instanceof Error ? error.message : "Payment failed"); } }}><input name="amountRupees" type="number" min="0.01" step="0.01" required className="min-w-0 rounded-lg border border-slate-200 px-2 py-2 text-xs" placeholder="Payment amount (₹)" aria-label={`Payment amount for ${employee.employeeName}`} /><input name="reference" className="min-w-0 rounded-lg border border-slate-200 px-2 py-2 text-xs" placeholder="Reference / UTR" aria-label={`Payment reference for ${employee.employeeName}`} /><Button className="col-span-2 w-full" size="sm" type="submit">Record payment</Button></form>}
-                      {employee.paidMinor >= employee.netPayMinor && employee.netPayMinor > 0 && <p className="mt-3 flex items-center gap-1 text-xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />Paid</p>}
                       {["finalized", "partially_paid", "paid"].includes(run.state) && <Button className="mt-3 w-full" size="sm" variant="outline" onClick={() => downloadEmployeePayslip(run, employee, user?.organization)}>Download payslip</Button>}
-                    </article>)}
+                    </article>)}</>}</Paged>
                   </div>
                   <div className="mt-4 hidden overflow-x-auto md:block">
-                    <table className="w-full min-w-[1000px] text-left text-xs">
+                    <Paged items={run.employees} initialPageSize={25}>{(rows: any[]) => (<table className="w-full min-w-[1000px] text-left text-xs">
                       <thead>
                         <tr className="text-slate-500 font-semibold border-b border-slate-100">
                           <th className="py-2 pr-4">Employee</th>
                           <th className="py-2 pr-4">Gross</th>
                           <th className="py-2 pr-4">Deductions</th>
                           <th className="py-2 pr-4">Net Pay</th>
-                          <th className="py-2 pr-4">Paid</th>
-                          <th className="py-2">Record Payment</th>
                           <th className="py-2 text-center">Payslip</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {run.employees.map((employee: any) => (
+                        {rows.map((employee: any) => (
                           <Fragment key={employee.employeeId}>
                           <tr key={employee.employeeId} className="hover:bg-slate-50/50">
             <td className="py-2.5 pr-4 font-medium text-slate-900">
@@ -547,66 +542,12 @@ export function PayrollFoundationPage() {
                             <td className="py-2.5 pr-4 font-semibold text-slate-900">
                               {formatMoney(employee.netPayMinor, run.currency)}
                             </td>
-                            <td className="py-2.5 pr-4 text-emerald-700">
-                              {formatMoney(employee.paidMinor, run.currency)}
-                            </td>
-                            <td className="min-w-[260px] py-2.5 pr-3">
-                              {(run.state === "finalized" || run.state === "partially_paid") &&
-                                employee.paidMinor < employee.netPayMinor && (
-                                  <form
-                                    className="flex flex-wrap gap-1"
-                                    onSubmit={async (e) => {
-                                      e.preventDefault();
-                                      const form = e.currentTarget;
-                                      const amount = Math.round(Number(new FormData(form).get("amountRupees")) * 100);
-                                      const reference = String(new FormData(form).get("reference") || "");
-                                      try {
-                                        await api.recordPayrollPayment(run.id, {
-                                          employeeId: employee.employeeId,
-                                          amountMinor: amount,
-                                          reference,
-                                        });
-                                        await load();
-                                        toast.success("Payment recorded");
-                                      } catch (error) {
-                                        toast.error(error instanceof Error ? error.message : "Payment failed");
-                                      }
-                                    }}
-                                  >
-                                    <input
-                                      name="amountRupees"
-                                      type="number"
-                                      min="0.01"
-                                      step="0.01"
-                                      required
-                                      className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-xs"
-                                      placeholder="Amount (₹)"
-                                      aria-label="Payment amount in rupees"
-                                    />
-                                    <input
-                                      name="reference"
-                                      className="w-28 rounded-lg border border-slate-200 px-2 py-1 text-xs"
-                                      placeholder="Ref / UTR"
-                                      aria-label="Payment reference"
-                                    />
-                                    <Button className="whitespace-nowrap" size="sm" type="submit">
-                                      Record
-                                    </Button>
-                                  </form>
-                                )}
-                              {employee.paidMinor >= employee.netPayMinor && employee.netPayMinor > 0 && (
-                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                  Paid
-                                </span>
-                              )}
-                            </td>
                             <td className="min-w-[150px] py-2.5 px-3 text-center">{["finalized", "partially_paid", "paid"].includes(run.state) && <Button className="whitespace-nowrap" size="sm" variant="outline" onClick={() => downloadEmployeePayslip(run, employee, user?.organization)}>Download payslip</Button>}</td>
                           </tr>
                           </Fragment>
                         ))}
                       </tbody>
-                    </table>
+                    </table>)}</Paged>
                   </div>
                 </Card>
               ))}
@@ -723,7 +664,7 @@ export function PayrollFoundationPage() {
               <EmptyState icon={CircleDollarSign} title="No daily earnings" description="Add daily earnings for employees that will be included in payroll runs." />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[800px] text-left text-sm">
+                <Paged items={earnings} initialPageSize={25}>{(rows) => (<table className="w-full min-w-[800px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                       <th className="px-4 py-3">Employee</th>
@@ -736,7 +677,7 @@ export function PayrollFoundationPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {earnings.map((item) => (
+                    {rows.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {item.employee?.employeeNumber} · {item.employee?.firstName} {item.employee?.lastName}
@@ -797,7 +738,7 @@ export function PayrollFoundationPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table>)}</Paged>
               </div>
             )}
           </Card>
@@ -1217,7 +1158,7 @@ export function PayrollFoundationPage() {
               />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
+                <Paged items={data.assignments} initialPageSize={25}>{(rows) => (<table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                       <th className="px-4 py-3">Employee</th>
@@ -1228,7 +1169,7 @@ export function PayrollFoundationPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {data.assignments.map((item: any) => (
+                    {rows.map((item: any) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {item.employee?.employeeNumber} · {item.employee?.firstName} {item.employee?.lastName}
@@ -1240,7 +1181,7 @@ export function PayrollFoundationPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table>)}</Paged>
               </div>
             )}
           </Card>

@@ -25,7 +25,7 @@ export function LoginPage({ employeeLogin = false }: { employeeLogin?: boolean }
     },
   });
 
-  const from = location.state?.from?.pathname || "/dashboard";
+  const from = location.state?.from?.pathname || "/";
 
   const onSubmit = async (values: any) => {
     setError(null);

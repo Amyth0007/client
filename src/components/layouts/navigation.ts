@@ -1,0 +1,76 @@
+import {
+  LayoutDashboard,
+  Users,
+  FileText,
+  CreditCard,
+  Target,
+  Handshake,
+  Settings,
+  Building2,
+  CalendarCheck,
+  Clock3,
+  Wallet,
+  Timer,
+  Umbrella,
+  type LucideIcon,
+} from "lucide-react";
+import { userCanAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
+import type { useAuth } from "../../modules/auth/AuthContext.js";
+
+type NavUser = ReturnType<typeof useAuth>["user"];
+export type NavItem = { label: string; path: string; icon: LucideIcon };
+export type NavGroup = { id: string; label: string; icon: LucideIcon; items: NavItem[] };
+
+/** Single source of truth for the app menu: used by the sidebar/mobile bar and by the post-login landing redirect. */
+export function buildNavGroups(user: NavUser): NavGroup[] {
+  const moduleEnabled = (moduleKey: OrganizationModuleKey) =>
+    !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
+  const groups: NavGroup[] = user?.role === "guard" ? [{ id: "guard", label: "Attendance", icon: CalendarCheck, items: [{ label: "Guard station", path: "/guard/attendance", icon: CalendarCheck }] }] : user?.role === "super_admin" ? [{
+    id: "platform",
+    label: "Platform",
+    icon: Building2,
+    items: [{ label: "Platform admin", path: "/platform", icon: Building2 }],
+  }] : [
+    {
+      id: "payment-recovery",
+      label: "Payment Recovery",
+      icon: Target,
+      items: [
+        ...(moduleEnabled("reports") ? [{ label: "Overview", path: "/dashboard", icon: LayoutDashboard }] : []),
+        ...(moduleEnabled("customers") ? [{ label: "Customers", path: "/customers", icon: Users }] : []),
+        ...(moduleEnabled("invoices") ? [{ label: "Invoices", path: "/invoices", icon: FileText }] : []),
+        ...(moduleEnabled("payments") ? [{ label: "Payments", path: "/payments", icon: CreditCard }] : []),
+        ...(moduleEnabled("recovery") ? [{ label: "Recovery", path: "/recovery", icon: Target }] : []),
+        ...(moduleEnabled("commitments") ? [{ label: "Commitments", path: "/commitments", icon: Handshake }] : []),
+      ],
+    },
+    {
+      id: "workforce",
+      label: "Workforce",
+      icon: CalendarCheck,
+      items: [
+        ...(moduleEnabled("workforce") ? [{ label: "Employees", path: "/workforce", icon: Users }, { label: "Shifts", path: "/workforce/shifts", icon: Clock3 }] : []),
+        ...(moduleEnabled("payroll") ? [user?.role === "employee" ? { label: "My payslips", path: "/my-payroll", icon: Wallet } : { label: "Earnings & pay", path: "/payroll", icon: Wallet }] : []),
+        ...(moduleEnabled("overtime") ? [{ label: "Overtime", path: "/overtime", icon: Timer }] : []),
+        ...(moduleEnabled("leave") ? [{ label: user?.role === "employee" ? "My leave" : "Leave & approvals", path: "/leave", icon: Umbrella }] : []),
+        ...(moduleEnabled("compliance") && user?.role !== "employee" ? [{ label: "Compliance rules", path: "/compliance", icon: FileText }] : []),
+        ...(moduleEnabled("reports") && ["workforce", "payroll", "attendance", "overtime", "leave"].some((key) => moduleEnabled(key as OrganizationModuleKey)) ? [{ label: "Workforce reports", path: "/workforce/reports", icon: FileText }] : []),
+        ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
+      ],
+    },
+    {
+      id: "workspace",
+      label: "Workspace",
+      icon: Settings,
+      items: [
+        ...(moduleEnabled("settings") ? [{ label: "Settings & team", path: "/settings", icon: Settings }] : []),
+      ],
+    },
+  ];
+  return groups.filter((group) => group.items.length > 0);
+}
+
+/** The first menu screen the user is allowed to open, or null when nothing is assigned. */
+export function firstNavPath(user: NavUser): string | null {
+  return buildNavGroups(user)[0]?.items[0]?.path ?? null;
+}

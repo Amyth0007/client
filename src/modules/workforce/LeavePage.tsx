@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Paged } from "../../components/common/Pagination.js";
 import toast from "react-hot-toast";
 import {
   CalendarDays,
@@ -365,7 +366,7 @@ export function LeavePage() {
             <EmptyState icon={CalendarDays} title="No leave requests yet" description="Employee applications will appear here." />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-left text-sm">
+              <Paged items={requests} initialPageSize={25}>{(rows) => (<table className="w-full min-w-[700px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                     <th className="px-4 py-3">Employee</th>
@@ -377,7 +378,7 @@ export function LeavePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {requests.map((item) => (
+                  {rows.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-900">
                         {item.employee?.employeeNumber} · {item.employee?.firstName} {item.employee?.lastName}
@@ -415,7 +416,7 @@ export function LeavePage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table>)}</Paged>
             </div>
           )}
         </Card>
@@ -430,7 +431,7 @@ export function LeavePage() {
             <EmptyState icon={ListFilter} title="No balance data" description="Leave balances will appear here once leave types are created and assigned." />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <Paged items={balances} initialPageSize={25}>{(rows) => (<table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                     {!isEmployee && <th className="px-4 py-3">Employee</th>}
@@ -443,7 +444,7 @@ export function LeavePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {balances.map((item) => {
+                  {rows.map((item) => {
                     const utilized = item.entitlementDays - item.availableDays;
                     const pct = Math.min(100, Math.round((utilized / item.entitlementDays) * 100)) || 0;
                     return (
@@ -471,7 +472,7 @@ export function LeavePage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </table>)}</Paged>
             </div>
           )}
         </Card>

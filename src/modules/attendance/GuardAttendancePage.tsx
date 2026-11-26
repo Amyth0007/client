@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
-import { Camera, LogIn, LogOut, MapPin, ShieldCheck } from "lucide-react";
+import { Camera, LogIn, LogOut, MapPin, ShieldCheck, SwitchCamera } from "lucide-react";
 import { api } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
@@ -18,19 +18,32 @@ export function GuardAttendancePage() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [photoPreview, setPhotoPreview] = useState("");
+  // Guards photograph the employee in front of them, so the back camera is the default; they can switch.
+  const [facingMode, setFacingMode] = useState<"environment" | "user">(() => { try { return window.localStorage.getItem("guard-camera-facing") === "user" ? "user" : "environment"; } catch { return "environment"; } });
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   useEffect(() => { void Promise.all([api.listAttendanceEmployees(), api.getGuardAttendanceConfig()]).then(([result, guardConfig]) => { setPeople(result.data ?? []); setConfig(guardConfig); }).catch((error) => toast.error(error instanceof Error ? error.message : "Could not load attendance station")); }, []);
   useEffect(() => () => { streamRef.current?.getTracks().forEach((track) => track.stop()); }, []);
   useEffect(() => () => { if (photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
   useEffect(() => { if (cameraOpen && videoRef.current && streamRef.current) videoRef.current.srcObject = streamRef.current; }, [cameraOpen]);
-  const openCamera = async () => {
+  const openCamera = async (mode: "environment" | "user" = facingMode) => {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera capture is unavailable in this browser. Use the photo picker below.");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      let stream: MediaStream;
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: mode } }, audio: false }); }
+      catch { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode }, audio: false }); } // devices with a single camera
       streamRef.current = stream;
+      setCameraReady(false);
+      if (videoRef.current) videoRef.current.srcObject = stream;
       setCameraOpen(true);
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not open camera"); }
+  };
+  const switchCamera = () => {
+    const next = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(next);
+    try { window.localStorage.setItem("guard-camera-facing", next); } catch { /* storage unavailable */ }
+    void openCamera(next);
   };
   const closeCamera = () => { streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setCameraReady(false); setCameraOpen(false); };
   const capturePhoto = () => {
@@ -74,7 +87,7 @@ export function GuardAttendancePage() {
       <div className="space-y-5"><CustomSelect label="Employee" required searchable value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="Search employee by name, ID, or email" options={people.map((person) => ({ value: person.id, label: person.name, sublabel: [person.employeeNumber, person.email].filter(Boolean).join(" · ") }))}/>
         {Boolean(config?.locations?.length) && <CustomSelect label="Office location" required={config?.policy?.locationVerificationRequired !== false} value={officeLocationId} onChange={(event) => setOfficeLocationId(event.target.value)} placeholder="Choose the office where the punch is happening" options={config!.locations.filter((location) => location.status === "active").map((location) => ({ value: location.id, label: location.name, sublabel: location.address }))}/>}
         {!people.length && <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">No active employee profiles are available. Add active employees in Workforce to enable attendance recording.</p>}
-        <div className="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 p-4 text-sm text-indigo-900"><span className="flex items-center gap-2 font-semibold"><Camera className="h-4 w-4"/>Take a check-in/out photo</span><span className="mt-1 block text-xs text-slate-600">Capture a live photo, or use the device camera/photo picker. A fresh photo is needed for each punch.</span>{cameraOpen ? <div className="mt-3 space-y-2"><video ref={videoRef} autoPlay playsInline onLoadedMetadata={() => setCameraReady(Boolean(videoRef.current?.videoWidth))} onCanPlay={() => setCameraReady(true)} className="max-h-72 w-full rounded-lg bg-slate-900 object-cover"/><div className="flex gap-2"><Button type="button" size="sm" disabled={!cameraReady} onClick={capturePhoto}>Capture photo</Button><Button type="button" size="sm" variant="outline" onClick={closeCamera}>Cancel</Button></div></div> : <div className="mt-3 flex flex-wrap items-center gap-3">{photoPreview && <img src={photoPreview} alt="Attendance photo preview" className="h-20 w-20 rounded-lg border border-slate-200 object-cover"/>}<Button type="button" size="sm" variant="outline" onClick={() => openCamera()}><Camera className="mr-2 h-4 w-4"/>{photo ? "Retake photo" : "Open camera"}</Button><label className="cursor-pointer text-xs font-semibold text-indigo-700 hover:underline">Choose photo<input key={photoInputKey} className="sr-only" type="file" accept="image/*" capture="user" onChange={(event) => { const file = event.target.files?.[0] ?? null; setPhoto(file); setPhotoPreview(file ? URL.createObjectURL(file) : ""); }}/></label></div>}</div>
+        <div className="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 p-4 text-sm text-indigo-900"><span className="flex items-center gap-2 font-semibold"><Camera className="h-4 w-4"/>Take a check-in/out photo</span><span className="mt-1 block text-xs text-slate-600">Capture a live photo, or use the device camera/photo picker. A fresh photo is needed for each punch.</span>{cameraOpen ? <div className="mt-3 space-y-2"><video ref={videoRef} autoPlay playsInline onLoadedMetadata={() => setCameraReady(Boolean(videoRef.current?.videoWidth))} onCanPlay={() => setCameraReady(true)} className={`max-h-72 w-full rounded-lg bg-slate-900 object-cover ${facingMode === "user" ? "-scale-x-100" : ""}`}/><div className="flex flex-wrap gap-2"><Button type="button" size="sm" disabled={!cameraReady} onClick={capturePhoto}>Capture photo</Button><Button type="button" size="sm" variant="outline" onClick={switchCamera} title="Switch between front and back camera"><SwitchCamera className="mr-2 h-4 w-4"/>{facingMode === "environment" ? "Use front camera" : "Use back camera"}</Button><Button type="button" size="sm" variant="ghost" onClick={closeCamera}>Cancel</Button></div><p className="text-[11px] text-slate-500">Using the {facingMode === "environment" ? "back" : "front"} camera.</p></div> : <div className="mt-3 flex flex-wrap items-center gap-3">{photoPreview && <img src={photoPreview} alt="Attendance photo preview" className="h-20 w-20 rounded-lg border border-slate-200 object-cover"/>}<Button type="button" size="sm" variant="outline" onClick={() => openCamera()}><Camera className="mr-2 h-4 w-4"/>{photo ? "Retake photo" : "Open camera"}</Button><label className="cursor-pointer text-xs font-semibold text-indigo-700 hover:underline">Choose photo<input key={photoInputKey} className="sr-only" type="file" accept="image/*" capture={facingMode} onChange={(event) => { const file = event.target.files?.[0] ?? null; setPhoto(file); setPhotoPreview(file ? URL.createObjectURL(file) : ""); }}/></label></div>}</div>
         <div className="grid gap-3 sm:grid-cols-2"><Button disabled={!employeeId || !photo || busy} onClick={() => punch("check_in")}><LogIn className="mr-2 h-4 w-4"/>Check In</Button><Button disabled={!employeeId || !photo || busy} variant="secondary" onClick={() => punch("check_out")}><LogOut className="mr-2 h-4 w-4"/>Check Out</Button></div>
         <p className="flex items-start gap-2 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500"/>{config?.policy?.locationVerificationRequired === false ? "Device location is recorded when available. Choose an office if configured." : `The device location is checked against the selected office. GPS must be accurate within ${config?.policy?.gpsAccuracyThresholdM ?? 50} metres.`}</p>
       </div>

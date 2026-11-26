@@ -2,28 +2,16 @@ import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import toast from "react-hot-toast";
 import {
-  LayoutDashboard,
-  Users,
-  FileText,
-  CreditCard,
-  Target,
-  Handshake,
-  Settings,
   LogOut,
   MoreHorizontal,
   X,
   Building2,
-  CalendarCheck,
-  Clock3,
-  Wallet,
-  Timer,
-  Umbrella,
   ChevronDown,
 } from "lucide-react";
 import { useAuth } from "../../modules/auth/AuthContext.js";
 import { Button } from "../common/Button.js";
 import { Modal } from "../common/Modal.js";
-import { userCanAccessModule } from "../../modules/platform/module-registry.js";
+import { buildNavGroups } from "./navigation.js";
 import { ApiProgressBar } from "../common/ApiProgressBar.js";
 
 export function AppLayout() {
@@ -34,8 +22,6 @@ export function AppLayout() {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const moduleEnabled = (moduleKey: "reports" | "customers" | "invoices" | "payments" | "recovery" | "commitments" | "gmail" | "settings" | "attendance" | "workforce" | "payroll" | "overtime" | "leave" | "compliance") =>
-    !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
 
   const handleLogout = () => setLogoutModalOpen(true);
 
@@ -63,48 +49,7 @@ export function AppLayout() {
         ? "Account Manager"
         : user?.role === "guard" ? "Guard" : user?.role === "employee" ? "Employee" : "Field Executive";
 
-  const navGroups = user?.role === "guard" ? [{ id: "guard", label: "Attendance", icon: CalendarCheck, items: [{ label: "Guard station", path: "/guard/attendance", icon: CalendarCheck }] }] : user?.role === "super_admin" ? [{
-    id: "platform",
-    label: "Platform",
-    icon: Building2,
-    items: [{ label: "Platform admin", path: "/platform", icon: Building2 }],
-  }] : [
-    {
-      id: "payment-recovery",
-      label: "Payment Recovery",
-      icon: Target,
-      items: [
-        ...(moduleEnabled("reports") ? [{ label: "Overview", path: "/dashboard", icon: LayoutDashboard }] : []),
-        ...(moduleEnabled("customers") ? [{ label: "Customers", path: "/customers", icon: Users }] : []),
-        ...(moduleEnabled("invoices") ? [{ label: "Invoices", path: "/invoices", icon: FileText }] : []),
-        ...(moduleEnabled("payments") ? [{ label: "Payments", path: "/payments", icon: CreditCard }] : []),
-        ...(moduleEnabled("recovery") ? [{ label: "Recovery", path: "/recovery", icon: Target }] : []),
-        ...(moduleEnabled("commitments") ? [{ label: "Commitments", path: "/commitments", icon: Handshake }] : []),
-      ],
-    },
-    {
-      id: "workforce",
-      label: "Workforce",
-      icon: CalendarCheck,
-      items: [
-        ...(moduleEnabled("workforce") ? [{ label: "Employees", path: "/workforce", icon: Users }, { label: "Shifts", path: "/workforce/shifts", icon: Clock3 }] : []),
-        ...(moduleEnabled("payroll") ? [user?.role === "employee" ? { label: "My payslips", path: "/my-payroll", icon: Wallet } : { label: "Earnings & pay", path: "/payroll", icon: Wallet }] : []),
-        ...(moduleEnabled("overtime") ? [{ label: "Overtime", path: "/overtime", icon: Timer }] : []),
-        ...(moduleEnabled("leave") ? [{ label: user?.role === "employee" ? "My leave" : "Leave & approvals", path: "/leave", icon: Umbrella }] : []),
-        ...(moduleEnabled("compliance") && user?.role !== "employee" ? [{ label: "Compliance rules", path: "/compliance", icon: FileText }] : []),
-        ...(moduleEnabled("reports") && ["workforce", "payroll", "attendance", "overtime", "leave"].some((key) => moduleEnabled(key as "workforce" | "payroll" | "attendance" | "overtime" | "leave")) ? [{ label: "Workforce reports", path: "/workforce/reports", icon: FileText }] : []),
-        ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
-      ],
-    },
-    {
-      id: "workspace",
-      label: "Workspace",
-      icon: Settings,
-      items: [
-        ...(moduleEnabled("settings") ? [{ label: "Settings & team", path: "/settings", icon: Settings }] : []),
-      ],
-    },
-  ].filter((group) => group.items.length > 0);
+  const navGroups = buildNavGroups(user);
 
   const allNavItems = navGroups.flatMap((group) => group.items);
   const mobilePrimaryItems = allNavItems.slice(0, allNavItems.length <= 5 ? 5 : 4);
