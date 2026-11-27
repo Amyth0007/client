@@ -5,7 +5,6 @@ import {
   LogOut,
   MoreHorizontal,
   X,
-  Building2,
   ChevronDown,
 } from "lucide-react";
 import { useAuth } from "../../modules/auth/AuthContext.js";
@@ -71,9 +70,7 @@ export function AppLayout() {
       <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 bg-white border-r border-slate-200 z-30">
         {/* Brand */}
         <div className="flex h-16 items-center gap-3 px-6 border-b border-slate-100">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white font-bold shadow-xs">
-            <Building2 className="h-5 w-5" />
-          </div>
+          <img src="/recovr-mark.svg" alt="" aria-hidden="true" className="h-9 w-9 rounded-xl shadow-xs" />
           <div>
             <span className="font-bold text-slate-900 tracking-tight text-base">Recovr</span>
             <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
@@ -153,9 +150,7 @@ export function AppLayout() {
         {/* Mobile Header */}
         <header className="md:hidden flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sticky top-0 z-20">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-white font-bold">
-              <Building2 className="h-4 w-4" />
-            </div>
+            <img src="/recovr-mark.svg" alt="" aria-hidden="true" className="h-7 w-7 rounded-lg" />
             <span className="font-bold text-slate-900 tracking-tight text-sm">Recovr</span>
           </div>
           <div className="flex min-w-0 items-center gap-2">

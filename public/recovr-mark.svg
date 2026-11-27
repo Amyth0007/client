@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="brand" x1="7" y1="5" x2="58" y2="61" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#312E81"/>
+      <stop offset=".52" stop-color="#4338CA"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="15" y1="17" x2="50" y2="49" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C4B5FD"/>
+      <stop offset=".54" stop-color="#818CF8"/>
+      <stop offset="1" stop-color="#67E8F9"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="42" y1="12" x2="53" y2="23" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A5F3FC"/>
+      <stop offset="1" stop-color="#5EEAD4"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="0" cy="0" r="1" gradientTransform="matrix(0 31 -31 0 32 16)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#818CF8" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#818CF8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 .35 0 0 0 0 .91 0 0 0 0 .98 0 0 0 .42 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="19" fill="url(#brand)"/>
+  <rect x="2" y="2" width="60" height="60" rx="19" fill="url(#aura)"/>
+  <path d="M16 36c-1-11 6-21 16-21 8 0 14 5 16 13" stroke="url(#orbit)" stroke-width="4.4" stroke-linecap="round"/>
+  <path d="m42 23 6 5-7 3" stroke="#C4B5FD" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 36c1 8-6 13-16 13-8 0-14-5-16-13" stroke="url(#orbit)" stroke-width="4.4" stroke-linecap="round"/>
+  <path d="m23 39-7-3 6-5" stroke="#67E8F9" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="32" r="8" fill="#312E81" fill-opacity=".65" stroke="white" stroke-opacity=".3" stroke-width="1.5"/>
+  <path d="m28.5 32 2.4 2.4 4.8-5" stroke="#99F6E4" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 12.5v6m-3-3h6" stroke="url(#spark)" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+</svg>

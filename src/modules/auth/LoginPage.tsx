@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate, useLocation } from "react-router";
 import { Link } from "react-router";
-import { Building2, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import { Input } from "../../components/common/Input.js";
 import { Button } from "../../components/common/Button.js";
@@ -44,9 +44,7 @@ export function LoginPage({ employeeLogin = false }: { employeeLogin?: boolean }
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-200">
-            <Building2 className="h-6 w-6" />
-          </div>
+          <img src="/recovr-mark.svg" alt="Recovr" className="mx-auto h-12 w-12 rounded-2xl shadow-md shadow-indigo-200" />
           <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
             {employeeLogin ? "Organization Employee Login" : "Sign in to Recovr"}
           </h2>

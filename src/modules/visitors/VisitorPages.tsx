@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useParams } from "react-router";
 import toast from "react-hot-toast";
 import QRCode from "qrcode";
-import { Archive, ArrowDown, ArrowUp, Copy, Eye, EyeOff } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, ChevronDown, Copy, Eye, EyeOff, Filter } from "lucide-react";
 import { api } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
@@ -29,9 +29,13 @@ export { InternalVisitorRegistrationPage } from "./InternalVisitorRegistrationPa
 function localDateKey(value?:string|null){if(!value)return "";const date=new Date(value);if(Number.isNaN(date.getTime()))return "";return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;}
 export function VisitorRecordsPage(){
  const[rows,SR]=useState<any[]>([]),[loading,SL]=useState(true),[openId,SO]=useState<string|null>(null),[qrData,SQ]=useState("");
+ const[visitorTab,SVT]=useState<"today"|"all">("today"),[filtersOpen,SFO]=useState(false);
  const[search,SS]=useState(""),[status,ST]=useState("all"),[registeredFrom,SRF]=useState(""),[registeredTo,SRT]=useState(""),[checkedInFrom,SCIF]=useState(""),[checkedInTo,SCIT]=useState(""),[checkedOutFrom,SCOF]=useState(""),[checkedOutTo,SCOT]=useState("");
  useEffect(()=>{void api.listVisitorRegistrations().then(SR).catch(e=>toast.error(e instanceof Error?e.message:"Could not load registrations")).finally(()=>SL(false))},[]);
- const filtered=rows.filter(row=>{
+ const todayKey=localDateKey(new Date().toISOString());
+ const todayCount=rows.filter(row=>localDateKey(row.createdAt)===todayKey).length;
+ const scopedRows=visitorTab==="today"?rows.filter(row=>localDateKey(row.createdAt)===todayKey):rows;
+ const filtered=scopedRows.filter(row=>{
   const currentStatus=row.checkedOutAt?"checked_out":row.checkedInAt?"checked_in":"registered";
   if(status!=="all"&&currentStatus!==status)return false;
   const snapshot:Field[]=row.formSnapshot??[];
@@ -50,14 +54,19 @@ export function VisitorRecordsPage(){
  const dateFilter=(label:string,value:string,onChange:(value:string)=>void)=><label className="text-xs font-medium text-slate-600">{label}<input type="date" className={`mt-1 ${filterInput}`} value={value} onChange={event=>onChange(event.target.value)}/></label>;
  return <div className="space-y-5">
   <PageHeader title="Visitor registrations" description="Search visitor records, review issued QR passes, and filter check-in and check-out activity."/>
+  <div role="tablist" aria-label="Visitor list" className="grid grid-cols-2 rounded-xl border border-slate-200 bg-slate-100/80 p-1 sm:inline-flex sm:w-auto">
+   <button type="button" role="tab" aria-selected={visitorTab==="today"} className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${visitorTab==="today"?"bg-white text-indigo-700 shadow-xs":"text-slate-600 hover:text-slate-900"}`} onClick={()=>SVT("today")}>Today’s visitors<span className={`rounded-full px-2 py-0.5 text-[10px] ${visitorTab==="today"?"bg-indigo-50 text-indigo-700":"bg-white/70 text-slate-500"}`}>{todayCount}</span></button>
+   <button type="button" role="tab" aria-selected={visitorTab==="all"} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition-all ${visitorTab==="all"?"bg-white text-indigo-700 shadow-xs":"text-slate-600 hover:text-slate-900"}`} onClick={()=>SVT("all")}>All visitors<span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${visitorTab==="all"?"bg-indigo-50 text-indigo-700":"bg-white/70 text-slate-500"}`}>{rows.length}</span></button>
+  </div>
   <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5">
-   <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-sm font-semibold text-slate-900">Filters</h2><p className="mt-0.5 text-xs text-slate-500">{filtered.length} of {rows.length} registrations</p></div><Button size="sm" variant="outline" onClick={clearFilters}>Clear filters</Button></div>
-   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+   <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-sm font-semibold text-slate-900">Filters</h2><p className="mt-0.5 text-xs text-slate-500">Showing {filtered.length} of {visitorTab==="today"?todayCount:rows.length} visitors</p></div><div className="flex items-center gap-2"><button type="button" className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:hidden" aria-expanded={filtersOpen} onClick={()=>SFO(open=>!open)}><Filter className="h-3.5 w-3.5"/>Filters<ChevronDown className={`h-3.5 w-3.5 transition-transform ${filtersOpen?"rotate-180":""}`}/></button><Button className="hidden sm:inline-flex" size="sm" variant="outline" onClick={clearFilters}>Clear filters</Button></div></div>
+   <div className={`${filtersOpen?"grid":"hidden"} gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-4`}>
     <label className="text-xs font-medium text-slate-600">Search visitor<input className={`mt-1 ${filterInput}`} value={search} onChange={event=>SS(event.target.value)} placeholder="Name, mobile, email, or details"/></label>
     <label className="text-xs font-medium text-slate-600">Visit status<select className={`mt-1 ${filterInput}`} value={status} onChange={event=>ST(event.target.value)}><option value="all">All statuses</option><option value="registered">Registered · not checked in</option><option value="checked_in">Checked in</option><option value="checked_out">Checked out</option></select></label>
     {dateFilter("Registered from",registeredFrom,SRF)}{dateFilter("Registered to",registeredTo,SRT)}
     {dateFilter("Checked in from",checkedInFrom,SCIF)}{dateFilter("Checked in to",checkedInTo,SCIT)}
     {dateFilter("Checked out from",checkedOutFrom,SCOF)}{dateFilter("Checked out to",checkedOutTo,SCOT)}
+    <div className="flex justify-end sm:hidden"><Button size="sm" variant="outline" onClick={clearFilters}>Clear filters</Button></div>
    </div>
   </section>
   <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
