@@ -29,7 +29,7 @@ export function buildNavGroups(user: NavUser): NavGroup[] {
     !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
   const visitorAdmin = user?.role === "org_admin" || user?.role === "super_admin";
   const canManageVisitorForms = visitorAdmin || user?.actionPermissions?.includes("visitors.manage_forms") === true;
-  const canRegisterVisitors = visitorAdmin || user?.role === "guard" || user?.actionPermissions?.includes("visitors.register") === true;
+  const canRegisterVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.register") === true;
   const canViewVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.view") === true;
   const canCheckVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.check_in") === true || user?.actionPermissions?.includes("visitors.check_out") === true;
   const visitorItems: NavItem[] = user?.role === "guard"
