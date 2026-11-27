@@ -24,13 +24,14 @@ import { Tabs } from "../../components/common/Tabs.js";
 import { Badge } from "../../components/common/Badge.js";
 import { InfoTip } from "../../components/common/InfoTip.js";
 import { useAuth } from "../auth/AuthContext.js";
+import { hasActionPermission } from "../platform/module-registry.js";
 
 export function OvertimePage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "org_admin" || user?.role === "sub_admin";
-  const canManagePolicy = user?.role === "org_admin" || (user?.role === "sub_admin" && (user.actionPermissions ?? []).includes("overtime.manage_policy"));
-  const canRecordEntry = user?.role === "org_admin" || (user?.role === "sub_admin" && (user.actionPermissions ?? []).includes("overtime.create"));
-  const canApprove = user?.role === "org_admin" || (user?.role === "sub_admin" && (user.actionPermissions ?? []).includes("overtime.approve"));
+  const isAdmin = user?.role === "org_admin" || user?.role === "sub_admin" || hasActionPermission(user, "overtime.approve", "overtime.manage_policy");
+  const canManagePolicy = hasActionPermission(user, "overtime.manage_policy");
+  const canRecordEntry = hasActionPermission(user, "overtime.create");
+  const canApprove = hasActionPermission(user, "overtime.approve");
 
   const [data, setData] = useState<any>({ policies: [], entries: [] });
   const [employees, setEmployees] = useState<any[]>([]);

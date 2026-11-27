@@ -1,7 +1,9 @@
 import { ORGANIZATION_MODULES } from "../../modules/platform/module-registry.js";
 import { ACTION_PERMISSIONS } from "../../modules/platform/action-permission-registry.js";
+import { SCREENS } from "../../modules/platform/screen-registry.js";
 
-export type PermissionValue = { modules: string[]; actions: string[] };
+/** `deniedScreens` hides individual screens of a granted module (deny-list, so new screens default to visible). */
+export type PermissionValue = { modules: string[]; actions: string[]; deniedScreens?: string[] };
 
 export const PERMISSION_GROUPS: Array<{ id: string; name: string; description: string; modules: string[] }> = [
   { id: "recovery", name: "Payment recovery", description: "Receivables, collections and customer follow-up", modules: ["reports", "customers", "invoices", "payments", "recovery", "commitments", "gmail"] },
@@ -39,15 +41,18 @@ export function accessLevelFor(moduleKey: string, value: PermissionValue, mode: 
 
 /** Short human summary, e.g. "6 screens · 23 actions". */
 export function permissionSummary(value: PermissionValue, mode: "actions" | "modules") {
-  const screens = `${value.modules.length} screen${value.modules.length === 1 ? "" : "s"}`;
-  return mode === "actions" ? `${screens} · ${value.actions.length} action${value.actions.length === 1 ? "" : "s"}` : screens;
+  const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const hidden = (value.deniedScreens ?? []).filter((key) => value.modules.includes(SCREENS.find((screen) => screen.key === key)?.module ?? "")).length;
+  return [plural(value.modules.length, "module"), mode === "actions" ? plural(value.actions.length, "action") : null, hidden ? `${hidden} screen${hidden === 1 ? "" : "s"} hidden` : null].filter(Boolean).join(" · ");
 }
 
 /** Keeps modules and actions consistent: in action mode a screen is granted exactly when one of its actions is. */
 export function normalizePermissions(value: PermissionValue, mode: "actions" | "modules"): PermissionValue {
-  if (mode === "modules") return { modules: [...new Set(value.modules)], actions: [] };
+  // Hidden screens only matter for granted modules; drop the rest so revoking a module resets its screens.
+  const keepScreens = (modules: string[]) => [...new Set(value.deniedScreens ?? [])].filter((key) => modules.includes(SCREENS.find((screen) => screen.key === key)?.module ?? ""));
+  if (mode === "modules") { const modules = [...new Set(value.modules)]; return { modules, actions: [], deniedScreens: keepScreens(modules) }; }
   const actions = [...new Set(value.actions)].filter((key) => moduleOfAction(key));
   const modules = ORGANIZATION_MODULES.map((module) => module.key as string).filter((key) => actions.some((action) => moduleOfAction(action) === key));
-  return { modules, actions };
+  return { modules, actions, deniedScreens: keepScreens(modules) };
 }
 

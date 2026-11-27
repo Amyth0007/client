@@ -11,12 +11,13 @@ import { Tabs } from "../../components/common/Tabs.js";
 import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog.js";
 import { useAuth } from "../auth/AuthContext.js";
+import { hasActionPermission } from "../platform/module-registry.js";
 
 type ShiftBreakInput = { name: string; startTime: string; endTime: string; paid: boolean };
 
 export function WorkforceShiftsPage() {
   const { user } = useAuth();
-  const isAdminOrSubadmin = user?.role === "org_admin" || user?.role === "sub_admin";
+  const isAdminOrSubadmin = user?.role === "org_admin" || user?.role === "sub_admin" || hasActionPermission(user, "workforce.manage_shifts");
   const [activeTab, setActiveTab] = useState<"schedules" | "swaps">("schedules");
   const [scheduleTab, setScheduleTab] = useState<"shifts" | "assignments">("shifts");
   const [shifts, setShifts] = useState<any[]>([]);

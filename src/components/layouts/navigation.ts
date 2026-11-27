@@ -16,8 +16,9 @@ import {
   ScanLine,
   type LucideIcon,
 } from "lucide-react";
-import { userCanAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
+import { canUserAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
 import type { useAuth } from "../../modules/auth/AuthContext.js";
+import { isPathHidden } from "../../modules/platform/screen-registry.js";
 
 type NavUser = ReturnType<typeof useAuth>["user"];
 export type NavItem = { label: string; path: string; icon: LucideIcon };
@@ -26,7 +27,7 @@ export type NavGroup = { id: string; label: string; icon: LucideIcon; items: Nav
 /** Single source of truth for the app menu: used by the sidebar/mobile bar and by the post-login landing redirect. */
 export function buildNavGroups(user: NavUser): NavGroup[] {
   const moduleEnabled = (moduleKey: OrganizationModuleKey) =>
-    !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
+    !user?.organizationId || canUserAccessModule(user, moduleKey);
   const visitorAdmin = user?.role === "org_admin" || user?.role === "super_admin";
   const canManageVisitorForms = visitorAdmin || user?.actionPermissions?.includes("visitors.manage_forms") === true;
   const guardHasVisitorDesk = user?.role === "guard" && user.modulePermissions?.visitors === true;
@@ -87,7 +88,10 @@ export function buildNavGroups(user: NavUser): NavGroup[] {
       ],
     },
   ];
-  return applyNavOrder(groups.filter((group) => group.items.length > 0), user?.organization?.navOrder);
+  const visibleGroups = groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !isPathHidden(user, item.path)) }))
+    .filter((group) => group.items.length > 0);
+  return applyNavOrder(visibleGroups, user?.organization?.navOrder);
 }
 
 /**

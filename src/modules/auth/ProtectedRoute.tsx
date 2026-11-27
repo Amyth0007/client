@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "./AuthContext.js";
+import { usesActionPermissions } from "../platform/module-registry.js";
 
 type ProtectedRouteProps = {
   allowedRoles?: string[];
@@ -24,11 +25,13 @@ export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (user.role === "field_recovery" && location.pathname === "/recovery/new") {
+  if (user.role === "field_recovery" && !usesActionPermissions(user) && location.pathname === "/recovery/new") {
     return <Navigate to="/recovery" replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  // Team members with action-level permissions open subadmin screens; their action grants decide what loads.
+  const allowedByActionGrant = Boolean(allowedRoles?.includes("sub_admin")) && usesActionPermissions(user);
+  if (allowedRoles && !allowedRoles.includes(user.role) && !allowedByActionGrant) {
     return <Navigate to="/" replace />;
   }
 

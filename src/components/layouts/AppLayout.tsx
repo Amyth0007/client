@@ -103,8 +103,10 @@ export function AppLayout() {
     ? "Super Admin"
     : user?.role === "org_admin"
       ? "Organization Admin"
+      : user?.customRoleName
+        ? user.customRoleName
       : user?.role === "sub_admin"
-        ? user.customRoleName || "Subadmin"
+        ? "Subadmin"
       : user?.role === "accounts_manager"
         ? "Account Manager"
         : user?.role === "guard" ? "Guard" : user?.role === "employee" ? "Employee" : "Field Executive";

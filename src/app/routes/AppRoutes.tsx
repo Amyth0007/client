@@ -37,18 +37,29 @@ import { InternalVisitorRegistrationPage, VisitorBuilderPage, PublicVisitorRegis
 const MyPayslipsPage = lazy(() => import("../../modules/workforce/MyPayslipsPage.js").then((module) => ({ default: module.MyPayslipsPage })));
 import { useAuth } from "../../modules/auth/AuthContext.js";
 import { firstNavPath } from "../../components/layouts/navigation.js";
-import { ORGANIZATION_MODULES, organizationModuleEnabled, userCanAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
+import { ORGANIZATION_MODULES, organizationModuleEnabled, canUserAccessModule, usesActionPermissions, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
+import { isPathHidden } from "../../modules/platform/screen-registry.js";
+
+/** Blocks screens an administrator hid for this user, including their detail and edit pages. */
+function ScreenGate() {
+  const { user } = useAuth();
+  const location = useLocation();
+  if (!isPathHidden(user, location.pathname)) return <Outlet />;
+  // The overview falls back to the first permitted screen, like users without Reports access.
+  if (location.pathname === "/dashboard") { const path = firstNavPath(user); return path && path !== "/dashboard" ? <Navigate to={path} replace /> : noScreens; }
+  return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold text-slate-900">This screen is not available</h1><p className="mt-2 text-sm text-slate-600">Your administrator has hidden this screen for your account. Contact them if you need access.</p></div>;
+}
 
 function ModuleGate({ moduleKey }: { moduleKey: OrganizationModuleKey }) {
   const { user } = useAuth();
   const location = useLocation();
-  if (user?.role === "employee" && /\/(new|edit)(\/|$)/.test(location.pathname)) return <Navigate to={`/${moduleKey === "reports" ? "dashboard" : moduleKey}`} replace />;
-  if (!user?.organizationId || userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, moduleKey, user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <Outlet />;
+  if (user?.role === "employee" && !usesActionPermissions(user) && /\/(new|edit)(\/|$)/.test(location.pathname)) return <Navigate to={`/${moduleKey === "reports" ? "dashboard" : moduleKey}`} replace />;
+  if (!user?.organizationId || canUserAccessModule(user, moduleKey)) return <Outlet />;
   const moduleEnabled = organizationModuleEnabled(user?.organization?.modules, moduleKey);
   const hasExplicitScreenGrant = user?.modulePermissionsConfigured && user.modulePermissions?.[moduleKey] === true;
-  const isActionGrantMissing = user?.role === "sub_admin" && moduleEnabled && hasExplicitScreenGrant;
+  const isActionGrantMissing = usesActionPermissions(user) && moduleEnabled && hasExplicitScreenGrant;
   const moduleName = ORGANIZATION_MODULES.find((module) => module.key === moduleKey)?.name ?? moduleKey;
-  const canOpenSettings = userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, "settings", user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
+  const canOpenSettings = canUserAccessModule(user, "settings");
   return <div className="mx-auto max-w-xl py-20 text-center"><h1 className="text-xl font-semibold text-slate-900">{isActionGrantMissing ? `No ${moduleName} actions assigned` : `${moduleName} is disabled`}</h1><p className="mt-2 text-sm text-slate-600">{isActionGrantMissing ? "Your administrator enabled this module but has not assigned any actions to your account." : "This module is not enabled for your organization or your screen access is not configured. Contact your organization administrator."}</p>{moduleKey !== "settings" && canOpenSettings && <Link className="mt-4 inline-block text-sm font-medium text-indigo-700 underline" to="/settings">Go to Settings</Link>}</div>;
 }
 
@@ -67,7 +78,7 @@ function LandingRedirect() {
 function DefaultDashboard() {
   const { user } = useAuth();
   if (user?.role === "super_admin" || user?.role === "guard") return <LandingRedirect />;
-  if (!user?.organizationId || userCanAccessModule(user.role, user.organization?.modules, user.modulePermissions, "reports", user.modulePermissionsConfigured ?? false, user.actionPermissions)) return <DashboardPage />;
+  if (!user?.organizationId || canUserAccessModule(user, "reports")) return <DashboardPage />;
   return <LandingRedirect />;
 }
 
@@ -85,6 +96,7 @@ export function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         {/* In-App Shell with Sidebar and Mobile Bottom Bar */}
         <Route element={<AppLayout />}>
+          <Route element={<ScreenGate />}>
           <Route index element={<LandingRedirect />} />
           <Route path="/dashboard" element={<DefaultDashboard />} />
           <Route element={<ProtectedRoute allowedRoles={["super_admin"]} />}>
@@ -163,6 +175,7 @@ export function AppRoutes() {
           </Route>
 
           <Route path="*" element={<NotFoundPage />} />
+          </Route>
         </Route>
       </Route>
     </Routes>

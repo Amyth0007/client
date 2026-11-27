@@ -7,7 +7,7 @@ import { api, formatMoney } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
 import { FilterDialog } from "../../components/common/FilterDialog.js";
 import { useAuth } from "../auth/AuthContext.js";
-import { userCanAccessModule, type OrganizationModuleKey } from "../platform/module-registry.js";
+import { canUserAccessModule, type OrganizationModuleKey } from "../platform/module-registry.js";
 
 async function fetchInvoiceRange(dateFrom: string, dateTo: string) {
   const rows: any[] = [];
@@ -142,7 +142,7 @@ export function DashboardPage() {
   const { data: aging } = useQuery({ queryKey: ["dashboard-aging"], queryFn: () => api.getAgingBuckets() });
   const { data: debtors = [] } = useQuery({ queryKey: ["dashboard-debtors"], queryFn: () => api.getCustomerOutstanding() });
 
-  const can = (moduleKey: OrganizationModuleKey) => userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
+  const can = (moduleKey: OrganizationModuleKey) => canUserAccessModule(user, moduleKey);
   const canCreate = user?.role !== "employee";
 
   const downloadReport = async () => {

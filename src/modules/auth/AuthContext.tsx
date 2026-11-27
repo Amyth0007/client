@@ -11,6 +11,10 @@ export type UserProfile = {
   modulePermissions?: Record<string, boolean>;
   modulePermissionsConfigured?: boolean;
   actionPermissions?: string[];
+  /** True when action grants are enforced (always for subadmins; for team members once configured). */
+  actionPermissionsConfigured?: boolean;
+  permissionMode?: "role" | "actions";
+  deniedScreens?: string[];
   customRoleId?: string | null;
   customRoleName?: string | null;
   workforceScope?: { mode: "organization" | "selected"; departmentIds: string[]; locationIds: string[] };

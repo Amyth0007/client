@@ -38,7 +38,7 @@ import { TextArea } from "../../components/common/TextArea.js";
 import { Modal } from "../../components/common/Modal.js";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog.js";
 import { GuardAttendancePage } from "./GuardAttendancePage.js";
-import { organizationModuleEnabled, userCanAccessModule } from "../platform/module-registry.js";
+import { canUserAccessModule, hasActionPermission, organizationModuleEnabled, usesActionPermissions } from "../platform/module-registry.js";
 import { Link } from "react-router";
 import { dateInZone, zonedDateTimeToIso } from "./time-zone.js";
 import { AttendanceCalendarEditor } from "./AttendanceCalendarEditor.js";
@@ -82,16 +82,9 @@ export function AttendancePage() {
 function AttendanceWorkspace() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isEnabled = userCanAccessModule(
-    user?.role,
-    user?.organization?.modules,
-    user?.modulePermissions,
-    "attendance",
-    user?.modulePermissionsConfigured ?? false,
-    user?.actionPermissions
-  );
+  const isEnabled = canUserAccessModule(user, "attendance");
   const noAttendanceActions =
-    user?.role === "sub_admin" &&
+    user != null && usesActionPermissions(user) &&
     organizationModuleEnabled(user.organization?.modules, "attendance") &&
     user.modulePermissionsConfigured &&
     user.modulePermissions?.attendance === true &&
@@ -545,7 +538,7 @@ function AttendanceWorkspace() {
       <PageHeader
         title="Attendance & Time Tracking"
         description="Verify daily check-ins with anti-spoof geofencing, shift recognition, break deductions, and punch regularization."
-        action={(user?.role === "org_admin" || user?.role === "sub_admin" && (user.actionPermissions ?? []).some((permission) => ["attendance.guard_punch", "attendance.view_all", "attendance.adjust"].includes(permission))) ? <Link to="/guard/attendance" className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Open employee check-in</Link> : undefined}
+        action={hasActionPermission(user, "attendance.guard_punch", "attendance.view_all", "attendance.adjust") ? <Link to="/guard/attendance" className="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Open employee check-in</Link> : undefined}
       />
 
       {/* Screen Help & Workflow Guide */}

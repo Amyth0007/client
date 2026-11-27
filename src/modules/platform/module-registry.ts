@@ -28,6 +28,34 @@ export function userCanAccessModule(role: string | undefined, modules: Organizat
   const roleRequiresGrant = role !== undefined && role !== "org_admin" && role !== "super_admin";
   const hasModuleGrant = organizationModuleEnabled(modules, moduleKey) && (!roleRequiresGrant || (permissionsConfigured && permissions?.[moduleKey] === true));
   if (!hasModuleGrant) return false;
-  if (role === "sub_admin" && actionPermissions !== undefined) return actionPermissions.some((permission) => permission.startsWith(`${moduleKey}.`));
+  // Action-scoped users (subadmins and team members with action-level permissions) need at least one action in the module.
+  if (roleRequiresGrant && actionPermissions !== undefined) return actionPermissions.some((permission) => permission.startsWith(`${moduleKey}.`));
   return true;
+}
+
+type PermissionUser = {
+  role?: string;
+  organization?: { modules?: OrganizationModules } | null;
+  modulePermissions?: Record<string, boolean>;
+  modulePermissionsConfigured?: boolean;
+  actionPermissions?: string[];
+  actionPermissionsConfigured?: boolean;
+} | null | undefined;
+
+const TEAM_MEMBER_ROLES = ["accounts_manager", "field_recovery", "employee", "guard"];
+
+/** Subadmins, and team members an administrator gave action-level permissions, are governed by their action grants. */
+export function usesActionPermissions(user: PermissionUser): boolean {
+  return user?.role === "sub_admin" || (user?.actionPermissionsConfigured === true && TEAM_MEMBER_ROLES.includes(user.role ?? ""));
+}
+
+/** True for organization admins, and for action-scoped users holding one of the given action permissions. */
+export function hasActionPermission(user: PermissionUser, ...permissions: string[]): boolean {
+  if (user?.role === "org_admin") return true;
+  return usesActionPermissions(user) && (user?.actionPermissions ?? []).some((permission) => permissions.includes(permission));
+}
+
+/** Module access for the signed-in user, applying action grants when they are action-scoped. */
+export function canUserAccessModule(user: PermissionUser, moduleKey: OrganizationModuleKey): boolean {
+  return userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, usesActionPermissions(user) ? user?.actionPermissions ?? [] : undefined);
 }

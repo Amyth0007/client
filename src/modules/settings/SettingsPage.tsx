@@ -17,10 +17,18 @@ import { organizationModuleEnabled, type OrganizationModuleKey } from "../platfo
 import { ACTION_PERMISSIONS } from "../platform/action-permission-registry.js";
 import { MenuOrderSettings } from "./MenuOrderSettings.js";
 import { PermissionChips, PermissionEditor } from "../../components/permissions/PermissionEditor.js";
-import { normalizePermissions, permissionSummary } from "../../components/permissions/permission-model.js";
+import { normalizePermissions, permissionSummary, viewActionsOf } from "../../components/permissions/permission-model.js";
 
 const ROLE_LABELS: Record<string, string> = { org_admin: "Organization Admin", sub_admin: "Subadmin", accounts_manager: "Account Manager", field_recovery: "Field Executive", employee: "Employee", guard: "Guard", super_admin: "Super Admin" };
-const EMPTY_ROLE_FORM = { id: "", name: "", description: "", modules: [] as string[], actions: [] as string[] };
+const TEAM_MEMBER_ROLES = ["accounts_manager", "field_recovery", "employee", "guard"];
+const isTeamMember = (role: string | undefined) => TEAM_MEMBER_ROLES.includes(role ?? "");
+/** Subadmins always, and team members switched to action-level permissions, are governed by action grants. */
+const isActionScoped = (emp: any) => emp?.role === "sub_admin" || (isTeamMember(emp?.role) && (emp?.permissionMode === "actions" || emp?.actionPermissionsConfigured === true));
+/** Where a person's permissions come from: their role's defaults, individual grants, or a custom role. */
+const permissionSourceOf = (emp: any) => !isActionScoped(emp) ? "role" : emp.customRoleId ? `custom:${emp.customRoleId}` : "individual";
+/** Least-privilege starting point when switching someone to individual permissions: view access to modules they already have. */
+const viewActionsFor = (modules: string[]) => modules.flatMap((key) => viewActionsOf(key).map((action) => action.key));
+const EMPTY_ROLE_FORM = { id: "", name: "", description: "", modules: [] as string[], actions: [] as string[], deniedScreens: [] as string[] };
 
 export function SettingsPage() {
   const { user, refreshProfile } = useAuth();
@@ -40,9 +48,11 @@ export function SettingsPage() {
   const [isSavingPermissions, setIsSavingPermissions] = useState(false);
   const [updatingRoleEmployeeId, setUpdatingRoleEmployeeId] = useState<string | null>(null);
   const [updatingStatusEmployeeId, setUpdatingStatusEmployeeId] = useState<string | null>(null);
-  const [customRoleForm, setCustomRoleForm] = useState<{ id: string; name: string; description: string; modules: string[]; actions: string[] }>({ id: "", name: "", description: "", modules: [], actions: [] });
+  const [customRoleForm, setCustomRoleForm] = useState<typeof EMPTY_ROLE_FORM>(EMPTY_ROLE_FORM);
+  const [screenDraft, setScreenDraft] = useState<string[]>([]);
   const [settingsTab, setSettingsTab] = useState("organization");
   const [permissionTab, setPermissionTab] = useState<"access" | "scope">("access");
+  const [permissionSource, setPermissionSource] = useState<string>("individual");
   const [roleEditorOpen, setRoleEditorOpen] = useState(false);
 
   const isOrgAdmin = user?.role === "org_admin" || user?.role === "super_admin";
@@ -113,7 +123,9 @@ export function SettingsPage() {
       temporaryPassword: "",
       modulePermissions: [] as string[],
       actionPermissions: [] as string[],
+      deniedScreens: [] as string[],
       customRoleId: "",
+      permissionMode: "role" as "role" | "actions",
     },
   });
 
@@ -179,11 +191,16 @@ export function SettingsPage() {
   const onAddEmployee = async (values: any) => {
     setIsCreatingEmployee(true);
     try {
-      const individual = values.role === "sub_admin" ? normalizePermissions({ modules: values.modulePermissions ?? [], actions: values.actionPermissions ?? [] }, "actions") : null;
-      const selectedModules = individual ? individual.modules : (values.modulePermissions ?? []);
-      const payload = values.role === "sub_admin" && values.customRoleId
-        ? { ...values, modulePermissions: [], actionPermissions: [], customRoleId: values.customRoleId }
-        : { ...values, modulePermissions: values.role === "org_admin" ? undefined : selectedModules, actionPermissions: values.role === "sub_admin" ? (values.actionPermissions ?? []).filter((permission: string) => selectedModules.includes(ACTION_PERMISSIONS.find((item) => item.key === permission)?.module ?? "")) : [], customRoleId: null };
+      const teamMember = isTeamMember(values.role);
+      const actionMode = values.role === "sub_admin" || (teamMember && values.permissionMode === "actions");
+      const base = { name: values.name, email: values.email, role: values.role, temporaryPassword: values.temporaryPassword, ...(teamMember ? { permissionMode: actionMode ? "actions" : "role" } : {}) };
+      let payload: Record<string, unknown>;
+      if (values.role === "org_admin") payload = base;
+      else if (actionMode && values.customRoleId) payload = { ...base, customRoleId: values.customRoleId };
+      else {
+        const permissions = normalizePermissions({ modules: values.modulePermissions ?? [], actions: values.actionPermissions ?? [], deniedScreens: values.deniedScreens ?? [] }, actionMode ? "actions" : "modules");
+        payload = { ...base, modulePermissions: permissions.modules, deniedScreens: permissions.deniedScreens, ...(actionMode ? { actionPermissions: permissions.actions.filter((permission) => ACTION_PERMISSIONS.some((item) => item.key === permission)) } : {}) };
+      }
       await api.createEmployee(payload);
       toast.success("Employee created successfully!");
       setEmployeeModalOpen(false);
@@ -199,9 +216,9 @@ export function SettingsPage() {
   const saveCustomRole = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const permissions = normalizePermissions({ modules: customRoleForm.modules, actions: customRoleForm.actions }, "actions");
+      const permissions = normalizePermissions({ modules: customRoleForm.modules, actions: customRoleForm.actions, deniedScreens: customRoleForm.deniedScreens }, "actions");
       if (!permissions.actions.length) { toast.error("Grant at least one screen before saving the role"); return; }
-      const payload = { name: customRoleForm.name, description: customRoleForm.description, modulePermissions: permissions.modules, actionPermissions: permissions.actions };
+      const payload = { name: customRoleForm.name, description: customRoleForm.description, modulePermissions: permissions.modules, actionPermissions: permissions.actions, deniedScreens: permissions.deniedScreens };
       if (customRoleForm.id) await api.updateCustomRole(customRoleForm.id, payload); else await api.createCustomRole(payload);
       toast.success(customRoleForm.id ? "Custom role updated" : "Custom role created");
       setCustomRoleForm(EMPTY_ROLE_FORM);
@@ -223,22 +240,47 @@ export function SettingsPage() {
   const editEmployeePermissions = (employee: any) => {
     setPermissionsTarget(employee);
     const modules = organization?.modules ?? user?.organization?.modules;
-    setPermissionDraft(Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && !(employee.role === "sub_admin" && key === "settings") && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
+    setPermissionDraft(Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && !(isActionScoped(employee) && key === "settings") && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
+    setPermissionSource(permissionSourceOf(employee));
     setActionPermissionDraft(employee.actionPermissions ?? []);
+    setScreenDraft(employee.deniedScreens ?? []);
     setScopeDraft(employee.workforceScope ?? { mode: "organization", departmentIds: [], locationIds: [] });
     setPermissionTab("access");
   };
   const openRoleEditor = (role?: any, duplicate = false) => {
-    setCustomRoleForm(role ? { id: duplicate ? "" : role.id, name: duplicate ? `${role.name} (copy)` : role.name, description: role.description ?? "", modules: role.modulePermissions ?? [], actions: role.actionPermissions ?? [] } : EMPTY_ROLE_FORM);
+    setCustomRoleForm(role ? { id: duplicate ? "" : role.id, name: duplicate ? `${role.name} (copy)` : role.name, description: role.description ?? "", modules: role.modulePermissions ?? [], actions: role.actionPermissions ?? [], deniedScreens: role.deniedScreens ?? [] } : EMPTY_ROLE_FORM);
     setRoleEditorOpen(true);
+  };
+  /** Switches the draft between role defaults, individual permissions and a custom role without saving. */
+  const changePermissionSource = (next: string) => {
+    if (next === permissionSource) return;
+    const fromRole = permissionSource.startsWith("custom:") ? customRoles.find((role: any) => `custom:${role.id}` === permissionSource) : null;
+    if (fromRole && !next.startsWith("custom:")) {
+      // Start from the custom role's grants so the admin can tweak them.
+      setPermissionDraft(fromRole.modulePermissions ?? []);
+      setActionPermissionDraft(fromRole.actionPermissions ?? []);
+      setScreenDraft(fromRole.deniedScreens ?? []);
+    } else if (next === "individual" && permissionSource === "role" && !actionPermissionDraft.length) {
+      setActionPermissionDraft(viewActionsFor(permissionDraft.filter((key) => key !== "settings")));
+    }
+    setPermissionSource(next);
+    setPermissionTab("access");
   };
   const saveEmployeePermissions = async () => {
     if (!permissionsTarget) return;
     setIsSavingPermissions(true);
     try {
-      const isSubAdmin = permissionsTarget.role === "sub_admin";
-      const draft = normalizePermissions({ modules: permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey)), actions: actionPermissionDraft }, isSubAdmin ? "actions" : "modules");
-      await api.updateEmployee(permissionsTarget.id, { modulePermissions: draft.modules, ...(isSubAdmin ? { actionPermissions: draft.actions, workforceScope: scopeDraft } : {}) });
+      const teamMember = isTeamMember(permissionsTarget.role);
+      const customRoleId = permissionSource.startsWith("custom:") ? permissionSource.slice("custom:".length) : null;
+      const actionMode = permissionSource !== "role";
+      const draft = normalizePermissions({ modules: permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey)), actions: actionPermissionDraft, deniedScreens: screenDraft }, actionMode ? "actions" : "modules");
+      if (actionMode && !customRoleId && teamMember && !draft.actions.length) { toast.error("Grant at least one action, or switch back to role defaults"); return; }
+      const modeField = teamMember ? { permissionMode: actionMode ? "actions" : "role" } : {};
+      await api.updateEmployee(permissionsTarget.id, customRoleId
+        ? { ...modeField, customRoleId, workforceScope: scopeDraft }
+        : actionMode
+          ? { ...modeField, modulePermissions: draft.modules, actionPermissions: draft.actions, deniedScreens: draft.deniedScreens, workforceScope: scopeDraft }
+          : { ...modeField, modulePermissions: draft.modules, deniedScreens: draft.deniedScreens });
       toast.success("Access permissions updated");
       setPermissionsTarget(null);
       await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
@@ -334,7 +376,7 @@ export function SettingsPage() {
 
       <Tabs ariaLabel="Settings sections" activeTab={settingsTab} onChange={setSettingsTab} tabs={[
         { id: "organization", label: "Organization" },
-        ...(isOrgAdmin ? [{ id: "team", label: "Team & access" }, { id: "roles", label: "Subadmin roles" }, { id: "menu", label: "Menu order" }] : []),
+        ...(isOrgAdmin ? [{ id: "team", label: "Team & access" }, { id: "roles", label: "Custom roles" }, { id: "menu", label: "Menu order" }] : []),
       ]} />
 
       {settingsTab === "menu" && isOrgAdmin && <MenuOrderSettings />}
@@ -438,31 +480,30 @@ export function SettingsPage() {
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <p className="border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500 sm:hidden">Swipe horizontally to view roles and actions.</p>
-              <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left text-xs">
+              <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 uppercase font-semibold">
                     <th className="whitespace-nowrap px-4 py-3">Name & Email</th>
-                    <th className="whitespace-nowrap px-4 py-3">Role</th>
-                    <th className="whitespace-nowrap px-4 py-3">Access</th>
+                    <th className="whitespace-nowrap px-4 py-3">Role & access</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {employees.map((emp: any) => (
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="min-w-[230px] px-4 py-4">
+                      <td className="max-w-[260px] px-4 py-4">
                         <span className="block whitespace-nowrap font-semibold text-slate-900">{emp.name}</span>
-                        <span className="block whitespace-nowrap text-slate-500">{emp.email}</span>
+                        <span className="block truncate text-slate-500" title={emp.email}>{emp.email}</span>
                         <Badge className="mt-1" variant={emp.status === "active" ? "success" : "neutral"}>{emp.status}</Badge>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4 text-slate-700">
+                      <td className="w-[240px] px-4 py-4 text-slate-700">
                         {emp.id === user?.id ? (
                           emp.customRoleName || (emp.role === "sub_admin" ? "Subadmin" : emp.role === "accounts_manager" ? "Account Manager" : emp.role === "field_recovery" ? "Field Executive" : emp.role === "employee" ? "Employee" : emp.role === "org_admin" ? "Organization Admin" : "Super Admin")
                         ) : (
                           <>
                           <CustomSelect
                             portal
-                            className="min-w-[190px]"
+                            className="w-[210px]"
                             disabled={updatingRoleEmployeeId === emp.id}
                             value={emp.role === "sub_admin" && emp.customRoleId ? `sub_admin:${emp.customRoleId}` : emp.role}
                             onChange={(event) => void handleChangeEmployeeRoleChoice(emp, event.target.value)}
@@ -471,25 +512,26 @@ export function SettingsPage() {
                           {updatingRoleEmployeeId === emp.id && <span className="ml-2 text-[10px] text-slate-500">Updating role…</span>}
                           </>
                         )}
-                      </td>
-                      <td className="min-w-[190px] px-4 py-4">
+                        <div className="mt-2">
                         {emp.role === "org_admin" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"><ShieldCheck className="h-3 w-3" />Full access</span>
                         ) : (
                           <div className="space-y-1">
                             <span className="text-[11px] font-semibold text-slate-700">
                               {emp.customRoleName ? <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-violet-700"><KeyRound className="h-3 w-3" />{emp.customRoleName}</span> : null}
-                              {permissionSummary({ modules: Object.entries(emp.modulePermissions ?? {}).filter(([, on]) => on).map(([key]) => key), actions: emp.actionPermissions ?? [] }, emp.role === "sub_admin" ? "actions" : "modules")}
+                              {isTeamMember(emp.role) && !emp.customRoleName && <span className={`mr-1 inline-flex rounded-full px-2 py-0.5 ${isActionScoped(emp) ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-600"}`}>{isActionScoped(emp) ? "Individual permissions" : "Role defaults"}</span>}
+                              {permissionSummary({ modules: Object.entries(emp.modulePermissions ?? {}).filter(([, on]) => on).map(([key]) => key), actions: emp.actionPermissions ?? [], deniedScreens: emp.deniedScreens ?? [] }, isActionScoped(emp) ? "actions" : "modules")}
                             </span>
                             <PermissionChips modules={Object.entries(emp.modulePermissions ?? {}).filter(([, on]) => on).map(([key]) => key)} max={3} />
                           </div>
                         )}
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 text-right">
                         {emp.id !== user?.id && (
                           <>
-                          <button onClick={() => handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>
-                          {emp.role !== "org_admin" && <button onClick={() => editEmployeePermissions(emp)} className="mr-3 inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"><ShieldCheck className="h-3.5 w-3.5" />Permissions</button>}
+                          <button onClick={() => handleResetEmployeePassword(emp)} title="Set a temporary password" className="mr-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"><KeyRound className="h-3.5 w-3.5" />Password</button>
+                          {emp.role !== "org_admin" && <button onClick={() => editEmployeePermissions(emp)} className="mr-2 inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"><ShieldCheck className="h-3.5 w-3.5" />Permissions</button>}
                           <button
                             onClick={() => handleToggleEmployeeStatus(emp)}
                             disabled={updatingStatusEmployeeId === emp.id}
@@ -515,14 +557,14 @@ export function SettingsPage() {
 
       {settingsTab === "roles" && isOrgAdmin && (
         <Card
-          title="Custom subadmin roles"
-          subtitle="Reusable permission sets for subadmins. Editing a role updates everyone assigned to it immediately."
+          title="Custom roles"
+          subtitle="Reusable permission sets for subadmins and team members. Editing a role updates everyone assigned to it immediately."
           action={<Button size="sm" onClick={() => openRoleEditor()}><Plus className="h-4 w-4" /><span>New role</span></Button>}
         >
           {customRoles.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 py-10 text-center">
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-50 text-indigo-600"><KeyRound className="h-5 w-5" /></span>
-              <div><p className="text-sm font-semibold text-slate-800">No custom roles yet</p><p className="text-xs text-slate-500">Bundle screens and actions once (for example “Accounts Head”), then assign it to any subadmin.</p></div>
+              <div><p className="text-sm font-semibold text-slate-800">No custom roles yet</p><p className="text-xs text-slate-500">Bundle screens and actions once (for example “Accounts Head”), then assign it to any subadmin or team member.</p></div>
               <Button size="sm" onClick={() => openRoleEditor()}><Plus className="h-4 w-4" /><span>Create the first role</span></Button>
             </div>
           ) : (
@@ -539,7 +581,7 @@ export function SettingsPage() {
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{permissionSummary({ modules: role.modulePermissions, actions: role.actionPermissions }, "actions")}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{permissionSummary({ modules: role.modulePermissions, actions: role.actionPermissions, deniedScreens: role.deniedScreens }, "actions")}</span>
                       <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700"><UsersRound className="h-3 w-3" />{members.length} member{members.length === 1 ? "" : "s"}</span>
                     </div>
                     <div className="mt-2"><PermissionChips modules={role.modulePermissions} max={4} /></div>
@@ -561,8 +603,8 @@ export function SettingsPage() {
         isOpen={roleEditorOpen}
         onClose={() => setRoleEditorOpen(false)}
         maxWidth="4xl"
-        title={customRoleForm.id ? `Edit role · ${customRoleForm.name}` : "New subadmin role"}
-        description="Choose an access level per screen, or expand a screen to switch individual actions on and off."
+        title={customRoleForm.id ? `Edit role · ${customRoleForm.name}` : "New custom role"}
+        description="Choose an access level per module, then expand a module to hide individual screens or switch single actions on and off."
       >
         <form onSubmit={(event) => void saveCustomRole(event)} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -577,13 +619,13 @@ export function SettingsPage() {
           )}
           <PermissionEditor
             mode="actions"
-            value={{ modules: customRoleForm.modules, actions: customRoleForm.actions }}
-            onChange={(next) => setCustomRoleForm((current) => ({ ...current, modules: next.modules, actions: next.actions }))}
+            value={{ modules: customRoleForm.modules, actions: customRoleForm.actions, deniedScreens: customRoleForm.deniedScreens }}
+            onChange={(next) => setCustomRoleForm((current) => ({ ...current, modules: next.modules, actions: next.actions, deniedScreens: next.deniedScreens ?? [] }))}
             organizationModules={availableOrganizationModules}
             restrictedModules={["settings"]}
           />
           <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-3 border-t border-slate-100 bg-white/95 px-6 py-3 backdrop-blur">
-            <span className="text-xs text-slate-500">{permissionSummary(normalizePermissions({ modules: customRoleForm.modules, actions: customRoleForm.actions }, "actions"), "actions")}</span>
+            <span className="text-xs text-slate-500">{permissionSummary(normalizePermissions({ modules: customRoleForm.modules, actions: customRoleForm.actions, deniedScreens: customRoleForm.deniedScreens }, "actions"), "actions")}</span>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => setRoleEditorOpen(false)}>Cancel</Button>
               <Button type="submit">{customRoleForm.id ? "Save role" : "Create role"}</Button>
@@ -627,9 +669,15 @@ export function SettingsPage() {
               if (value.startsWith("sub_admin:")) {
                 setEmpValue("role", "sub_admin", { shouldDirty: true });
                 setEmpValue("customRoleId", value.slice("sub_admin:".length), { shouldDirty: true });
+                setEmpValue("permissionMode", "actions", { shouldDirty: true });
               } else {
+                const roleChanged = value !== watchEmp("role");
                 setEmpValue("role", value, { shouldDirty: true });
-                if (value !== "sub_admin") setEmpValue("customRoleId", "", { shouldDirty: true });
+                if (roleChanged) {
+                  // A new role starts from its defaults; subadmins always use individual permissions.
+                  setEmpValue("customRoleId", "", { shouldDirty: true });
+                  setEmpValue("permissionMode", value === "sub_admin" ? "actions" : "role", { shouldDirty: true });
+                }
               }
             }}
             options={[
@@ -643,28 +691,53 @@ export function SettingsPage() {
             ]}
           />
 
-          {watchEmp("role") === "sub_admin" && <CustomSelect label="Custom permission role (optional)" value={watchEmp("customRoleId")} onChange={(event) => setEmpValue("customRoleId", event.target.value, { shouldDirty: true })} options={[{ value: "", label: "Configure individual permissions below" }, ...customRoles.map((role: any) => ({ value: role.id, label: role.name }))]} />}
-
-          {watchEmp("role") === "org_admin" ? (
-            <div className="flex gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />Organization admins have full access to every screen and action, including team and workspace settings.</div>
-          ) : watchEmp("role") === "sub_admin" && watchEmp("customRoleId") ? (
-            <div className="space-y-2">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800"><Lock className="h-3.5 w-3.5 text-slate-400" />Permissions from the “{customRoles.find((role: any) => role.id === watchEmp("customRoleId"))?.name}” role</p>
-              <PermissionEditor readOnly mode="actions" value={{ modules: customRoles.find((role: any) => role.id === watchEmp("customRoleId"))?.modulePermissions ?? [], actions: customRoles.find((role: any) => role.id === watchEmp("customRoleId"))?.actionPermissions ?? [] }} onChange={() => undefined} organizationModules={availableOrganizationModules} restrictedModules={["settings"]} />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Permissions</p>
-              <PermissionEditor
-                mode={watchEmp("role") === "sub_admin" ? "actions" : "modules"}
-                value={{ modules: watchEmp("modulePermissions") ?? [], actions: watchEmp("actionPermissions") ?? [] }}
-                onChange={(next) => { setEmpValue("modulePermissions", next.modules, { shouldDirty: true }); setEmpValue("actionPermissions", next.actions, { shouldDirty: true }); }}
-                organizationModules={availableOrganizationModules}
-                restrictedModules={watchEmp("role") === "sub_admin" ? ["settings"] : []}
-                roleLabel={ROLE_LABELS[watchEmp("role")]?.toLowerCase()}
-              />
-            </div>
-          )}
+          {(() => {
+            const role = watchEmp("role");
+            if (role === "org_admin") return <div className="flex gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />Organization admins have full access to every screen and action, including team and workspace settings.</div>;
+            const teamMember = isTeamMember(role);
+            const actionMode = role === "sub_admin" || (teamMember && watchEmp("permissionMode") === "actions");
+            const customRoleId = actionMode ? watchEmp("customRoleId") : "";
+            const assignedRole = customRoleId ? customRoles.find((item: any) => item.id === customRoleId) : null;
+            const sourceValue = !actionMode ? "role" : customRoleId ? `custom:${customRoleId}` : "individual";
+            return (
+              <>
+                <CustomSelect
+                  label="Permissions from"
+                  value={sourceValue}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    if (next === "role") { setEmpValue("permissionMode", "role", { shouldDirty: true }); setEmpValue("customRoleId", "", { shouldDirty: true }); return; }
+                    if (next === "individual" && sourceValue === "role" && !(watchEmp("actionPermissions") ?? []).length) setEmpValue("actionPermissions", viewActionsFor((watchEmp("modulePermissions") ?? []).filter((key: string) => key !== "settings")), { shouldDirty: true });
+                    setEmpValue("permissionMode", "actions", { shouldDirty: true });
+                    setEmpValue("customRoleId", next.startsWith("custom:") ? next.slice("custom:".length) : "", { shouldDirty: true });
+                  }}
+                  options={[
+                    ...(teamMember ? [{ value: "role", label: `${ROLE_LABELS[role]} defaults · choose screens only` }] : []),
+                    { value: "individual", label: "Individual permissions · choose actions like a subadmin" },
+                    ...[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((item: any) => ({ value: `custom:${item.id}`, label: `Custom role · ${item.name}` })),
+                  ]}
+                />
+                {assignedRole ? (
+                  <div className="space-y-2">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800"><Lock className="h-3.5 w-3.5 text-slate-400" />Permissions from the “{assignedRole.name}” role</p>
+                    <PermissionEditor readOnly mode="actions" value={{ modules: assignedRole.modulePermissions ?? [], actions: assignedRole.actionPermissions ?? [], deniedScreens: assignedRole.deniedScreens ?? [] }} onChange={() => undefined} organizationModules={availableOrganizationModules} restrictedModules={["settings"]} />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-slate-800">Permissions</p>
+                    <PermissionEditor
+                      mode={actionMode ? "actions" : "modules"}
+                      value={{ modules: watchEmp("modulePermissions") ?? [], actions: watchEmp("actionPermissions") ?? [], deniedScreens: watchEmp("deniedScreens") ?? [] }}
+                      onChange={(next) => { setEmpValue("modulePermissions", next.modules, { shouldDirty: true }); setEmpValue("actionPermissions", next.actions, { shouldDirty: true }); setEmpValue("deniedScreens", next.deniedScreens ?? [], { shouldDirty: true }); }}
+                      organizationModules={availableOrganizationModules}
+                      restrictedModules={actionMode ? ["settings"] : []}
+                      roleLabel={ROLE_LABELS[role]?.toLowerCase()}
+                    />
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           <Input
             label="Temporary Password"
@@ -708,51 +781,64 @@ export function SettingsPage() {
         onClose={() => setPermissionsTarget(null)}
         maxWidth="4xl"
         title={permissionsTarget ? `Permissions · ${permissionsTarget.name}` : "Permissions"}
-        description={permissionsTarget ? `${permissionsTarget.customRoleName ? `Subadmin · ${permissionsTarget.customRoleName}` : ROLE_LABELS[permissionsTarget.role] ?? permissionsTarget.role} · ${permissionsTarget.email}` : undefined}
+        description={permissionsTarget ? `${ROLE_LABELS[permissionsTarget.role] ?? permissionsTarget.role}${permissionsTarget.customRoleName ? ` · ${permissionsTarget.customRoleName}` : ""} · ${permissionsTarget.email}` : undefined}
       >
         {permissionsTarget && (() => {
-          const isSubAdmin = permissionsTarget.role === "sub_admin";
-          const assignedRole = isSubAdmin && permissionsTarget.customRoleId ? customRoles.find((role: any) => role.id === permissionsTarget.customRoleId) : null;
-          const draft = { modules: permissionDraft, actions: actionPermissionDraft };
+          const teamMember = isTeamMember(permissionsTarget.role);
+          const actionMode = permissionSource !== "role";
+          const assignedRole = permissionSource.startsWith("custom:") ? customRoles.find((role: any) => `custom:${role.id}` === permissionSource) : null;
+          const draft = { modules: permissionDraft, actions: actionPermissionDraft, deniedScreens: screenDraft };
+          const roleName = ROLE_LABELS[permissionsTarget.role] ?? permissionsTarget.role;
           return (
             <div className="space-y-4">
-              {assignedRole ? (
+              <CustomSelect
+                label="Permissions from"
+                value={permissionSource}
+                onChange={(event) => changePermissionSource(event.target.value)}
+                options={[
+                  ...(teamMember ? [{ value: "role", label: `${roleName} defaults · choose screens only` }] : []),
+                  { value: "individual", label: "Individual permissions · choose actions like a subadmin" },
+                  ...[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => ({ value: `custom:${role.id}`, label: `Custom role · ${role.name}` })),
+                ]}
+              />
+              {teamMember && actionMode && permissionSourceOf(permissionsTarget) === "role" && (
+                <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-900">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>After saving, {permissionsTarget.name} can only do the actions you grant here, the same way a subadmin is controlled. {assignedRole ? "" : "We started them with view access to the modules they already had; turn on what they need to change."}</span>
+                </div>
+              )}
+              {actionMode && (
+                <Tabs
+                  variant="pills"
+                  activeTab={permissionTab}
+                  onChange={(id) => setPermissionTab(id as "access" | "scope")}
+                  tabs={[
+                    { id: "access", label: "Modules, screens & actions", count: assignedRole ? permissionSummary({ modules: assignedRole.modulePermissions, actions: assignedRole.actionPermissions, deniedScreens: assignedRole.deniedScreens ?? [] }, "actions") : permissionSummary(normalizePermissions(draft, "actions"), "actions") },
+                    { id: "scope", label: "Data scope", badge: scopeDraft.mode === "selected" ? "Restricted" : undefined },
+                  ]}
+                />
+              )}
+              {(!actionMode || permissionTab === "access") && (assignedRole ? (
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50/70 p-3">
                     <p className="flex items-start gap-2 text-xs text-violet-900"><KeyRound className="mt-0.5 h-4 w-4 shrink-0" /><span>Permissions come from the <strong>{assignedRole.name}</strong> role and change automatically when the role is edited.</span></p>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setPermissionsTarget(null); setSettingsTab("roles"); openRoleEditor(assignedRole); }}>Edit role</Button>
-                      <Button size="sm" variant="secondary" onClick={async () => { if (await handleChangeEmployeeRoleChoice(permissionsTarget, "sub_admin")) setPermissionsTarget(null); }}>Use individual permissions</Button>
-                    </div>
+                    <Button size="sm" variant="outline" onClick={() => { setPermissionsTarget(null); setSettingsTab("roles"); openRoleEditor(assignedRole); }}>Edit role</Button>
                   </div>
-                  <PermissionEditor readOnly mode="actions" value={{ modules: assignedRole.modulePermissions, actions: assignedRole.actionPermissions }} onChange={() => undefined} organizationModules={availableOrganizationModules} restrictedModules={["settings"]} />
+                  <PermissionEditor readOnly mode="actions" value={{ modules: assignedRole.modulePermissions, actions: assignedRole.actionPermissions, deniedScreens: assignedRole.deniedScreens ?? [] }} onChange={() => undefined} organizationModules={availableOrganizationModules} restrictedModules={["settings"]} />
                 </>
               ) : (
-                <>
-                  {isSubAdmin && (
-                    <Tabs
-                      variant="pills"
-                      activeTab={permissionTab}
-                      onChange={(id) => setPermissionTab(id as "access" | "scope")}
-                      tabs={[
-                        { id: "access", label: "Screens & actions", count: permissionSummary(normalizePermissions(draft, "actions"), "actions") },
-                        { id: "scope", label: "Data scope", badge: scopeDraft.mode === "selected" ? "Restricted" : undefined },
-                      ]}
-                    />
-                  )}
-                  {(!isSubAdmin || permissionTab === "access") && (
-                    <PermissionEditor
-                      mode={isSubAdmin ? "actions" : "modules"}
-                      value={draft}
-                      onChange={(next) => { setPermissionDraft(next.modules); setActionPermissionDraft(next.actions); }}
-                      organizationModules={availableOrganizationModules}
-                      restrictedModules={isSubAdmin ? ["settings"] : []}
-                      roleLabel={ROLE_LABELS[permissionsTarget.role]?.toLowerCase()}
-                    />
-                  )}
-                  {isSubAdmin && permissionTab === "scope" && (
+                <PermissionEditor
+                  mode={actionMode ? "actions" : "modules"}
+                  value={draft}
+                  onChange={(next) => { setPermissionDraft(next.modules); setActionPermissionDraft(next.actions); setScreenDraft(next.deniedScreens ?? []); }}
+                  organizationModules={availableOrganizationModules}
+                  restrictedModules={actionMode ? ["settings"] : []}
+                  roleLabel={roleName.toLowerCase()}
+                />
+              ))}
+                  {actionMode && permissionTab === "scope" && (
                     <div className="space-y-3">
-                      <p className="text-xs text-slate-600">Limit which employee records this subadmin can see in Workforce, Attendance, Leave, Overtime and Payroll. Departments and locations combine as an intersection; an empty list leaves that dimension unrestricted.</p>
+                      <p className="text-xs text-slate-600">Limit which employee records this person can see in Workforce, Attendance, Leave, Overtime and Payroll. Departments and locations combine as an intersection; an empty list leaves that dimension unrestricted.</p>
                       <div className="grid gap-2 sm:grid-cols-2">
                         {([["organization", "Whole organization", "Every employee record"], ["selected", "Selected departments / locations", "Only matching employee records"]] as const).map(([mode, title, hint]) => (
                           <button key={mode} type="button" onClick={() => setScopeDraft({ ...scopeDraft, mode })} className={`rounded-xl border p-3 text-left transition-colors ${scopeDraft.mode === mode ? "border-indigo-400 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 hover:bg-slate-50"}`}>
@@ -780,13 +866,11 @@ export function SettingsPage() {
                       )}
                     </div>
                   )}
-                </>
-              )}
               <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-3 border-t border-slate-100 bg-white/95 px-6 py-3 backdrop-blur">
-                <span className="text-xs text-slate-500">{assignedRole ? "Managed by role" : permissionSummary(normalizePermissions(draft, isSubAdmin ? "actions" : "modules"), isSubAdmin ? "actions" : "modules")}</span>
+                <span className="text-xs text-slate-500">{assignedRole ? `Managed by the ${assignedRole.name} role` : permissionSummary(normalizePermissions(draft, actionMode ? "actions" : "modules"), actionMode ? "actions" : "modules")}</span>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setPermissionsTarget(null)}>{assignedRole ? "Close" : "Cancel"}</Button>
-                  {!assignedRole && <Button isLoading={isSavingPermissions} onClick={() => saveEmployeePermissions()}>Save permissions</Button>}
+                  <Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button>
+                  <Button isLoading={isSavingPermissions} onClick={() => saveEmployeePermissions()}>Save permissions</Button>
                 </div>
               </div>
             </div>

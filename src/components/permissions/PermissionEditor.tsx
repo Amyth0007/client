@@ -2,10 +2,11 @@ import { useMemo, useState } from "react";
 import { clsx } from "clsx";
 import {
   Banknote, Briefcase, CalendarOff, ChartColumn, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, DoorOpen, Eye, FileText,
-  Handshake, Info, Lock, Mail, MapPinned, PenLine, Scale, ScanFace, Search, Settings, ShieldCheck, Timer, Users, Wallet,
+  EyeOff, Handshake, Info, Lock, Mail, MapPinned, MonitorSmartphone, PenLine, Scale, ScanFace, Search, Settings, ShieldCheck, Timer, Users, Wallet,
 } from "lucide-react";
 import { ORGANIZATION_MODULES, organizationModuleEnabled, type OrganizationModules } from "../../modules/platform/module-registry.js";
 import { ACTION_PERMISSIONS } from "../../modules/platform/action-permission-registry.js";
+import { screensOfModule } from "../../modules/platform/screen-registry.js";
 import { accessLevelFor, actionsOf, isViewAction, moduleOfAction, normalizePermissions, PERMISSION_GROUPS, SENSITIVE_ACTIONS, viewActionsOf, type AccessLevel, type PermissionValue } from "./permission-model.js";
 
 type ModuleDef = (typeof ORGANIZATION_MODULES)[number];
@@ -77,30 +78,33 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
   const setLevel = (moduleKey: string, level: "none" | "view" | "full") => {
     if (mode === "modules") {
       const modules = level === "none" ? value.modules.filter((key) => key !== moduleKey) : [...value.modules, moduleKey];
-      emit({ modules, actions: [] });
+      emit({ modules, actions: [], deniedScreens: value.deniedScreens });
       return;
     }
     const others = value.actions.filter((key) => moduleOfAction(key) !== moduleKey);
     const added = level === "none" ? [] : (level === "view" ? viewActionsOf(moduleKey) : actionsOf(moduleKey)).map((action) => action.key);
-    emit({ modules: value.modules, actions: [...others, ...added] });
+    emit({ modules: value.modules, actions: [...others, ...added], deniedScreens: value.deniedScreens });
   };
 
   const toggleAction = (action: ActionDef, granted: boolean) => {
     let actions = granted ? [...value.actions, action.key] : value.actions.filter((key) => key !== action.key);
     // Granting a change action implies seeing the screen; keep the read permission alongside it.
     if (granted && !isViewAction(action.key)) actions = [...actions, ...viewActionsOf(action.module).map((item) => item.key)];
-    emit({ modules: value.modules, actions });
+    emit({ modules: value.modules, actions, deniedScreens: value.deniedScreens });
   };
+
+  const deniedScreens = value.deniedScreens ?? [];
+  const toggleScreen = (key: string, visible: boolean) => emit({ ...value, deniedScreens: visible ? deniedScreens.filter((item) => item !== key) : [...deniedScreens, key] });
 
   const setAll = (level: "none" | "view" | "full", modules: readonly ModuleDef[] = grantable) => {
     const keys = new Set(modules.filter((module) => !availability(module).locked).map((module) => module.key as string));
     if (mode === "modules") {
-      emit({ modules: level === "none" ? value.modules.filter((key) => !keys.has(key)) : [...value.modules, ...keys], actions: [] });
+      emit({ modules: level === "none" ? value.modules.filter((key) => !keys.has(key)) : [...value.modules, ...keys], actions: [], deniedScreens: value.deniedScreens });
       return;
     }
     const kept = value.actions.filter((key) => !keys.has(moduleOfAction(key) ?? ""));
     const added = level === "none" ? [] : [...keys].flatMap((key) => (level === "view" ? viewActionsOf(key) : actionsOf(key)).map((action) => action.key));
-    emit({ modules: value.modules, actions: [...kept, ...added] });
+    emit({ modules: value.modules, actions: [...kept, ...added], deniedScreens: value.deniedScreens });
   };
 
   const toggleExpanded = (key: string) => setExpanded((current) => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; });
@@ -109,7 +113,8 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
   const matches = (module: ModuleDef) => !normalizedQuery
     || module.name.toLowerCase().includes(normalizedQuery)
     || module.description.toLowerCase().includes(normalizedQuery)
-    || actionsOf(module.key).some((action) => action.name.toLowerCase().includes(normalizedQuery));
+    || actionsOf(module.key).some((action) => action.name.toLowerCase().includes(normalizedQuery))
+    || screensOfModule(module.key).some((screen) => screen.name.toLowerCase().includes(normalizedQuery));
 
   const groups = useMemo(() => PERMISSION_GROUPS.map((group) => ({
     ...group,
@@ -119,6 +124,7 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
   const totalActions = grantable.reduce((sum, module) => sum + actionsOf(module.key).length, 0);
   const sensitiveGranted = mode === "actions" ? value.actions.filter((key) => SENSITIVE_ACTIONS.has(key)).length : 0;
   const allExpanded = grantable.every((module) => expanded.has(module.key));
+  const hiddenScreenCount = deniedScreens.filter((key) => value.modules.includes(key.split(".")[0]!)).length;
 
   return (
     <div className="space-y-3">
@@ -129,14 +135,15 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search screens or actions…"
+            placeholder="Search modules, screens or actions…"
             className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
           />
         </div>
         <div className="flex items-center gap-1.5 text-[11px]">
           <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 ring-1 ring-slate-200">
-            {value.modules.length}/{grantable.length} screens
+            {value.modules.length}/{grantable.length} modules
           </span>
+          {hiddenScreenCount > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 font-semibold text-slate-600 ring-1 ring-slate-200"><EyeOff className="h-3 w-3" />{hiddenScreenCount} hidden screen{hiddenScreenCount === 1 ? "" : "s"}</span>}
           {mode === "actions" && <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-700 ring-1 ring-slate-200">{value.actions.length}/{totalActions} actions</span>}
           {sensitiveGranted > 0 && <span className="rounded-full bg-amber-50 px-2.5 py-1 font-semibold text-amber-700 ring-1 ring-amber-200">{sensitiveGranted} sensitive</span>}
         </div>
@@ -163,7 +170,7 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
       {mode === "modules" && (
         <div className="flex gap-2 rounded-xl border border-sky-100 bg-sky-50/60 px-3 py-2 text-[11px] text-sky-900">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>Choose which screens {roleLabel ? `this ${roleLabel}` : "this person"} can open. What they can do on each screen comes from their role. For action-by-action control, assign a Subadmin role.</span>
+          <span>Choose which modules {roleLabel ? `this ${roleLabel}` : "this person"} can use, and expand a module to hide individual screens. What they can do on each screen comes from their role. For action-by-action control, assign a Subadmin role.</span>
         </div>
       )}
 
@@ -198,15 +205,19 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
                 const level = locked ? "none" : accessLevelFor(module.key, value, mode);
                 const actions = actionsOf(module.key);
                 const granted = actions.filter((action) => value.actions.includes(action.key)).length;
-                const isOpen = (expanded.has(module.key) || Boolean(normalizedQuery)) && actions.length > 0;
+                const screens = screensOfModule(module.key);
+                const hasScreenChoice = screens.length > 1;
+                const hiddenHere = screens.filter((screen) => deniedScreens.includes(screen.key)).length;
+                const expandable = actions.length > 0 || hasScreenChoice;
+                const isOpen = (expanded.has(module.key) || Boolean(normalizedQuery)) && expandable;
                 const Icon = MODULE_ICONS[module.key] ?? ShieldCheck;
                 return (
                   <li key={module.key} className={clsx(locked && "bg-slate-50/50")}>
                     <div
-                      className={clsx("flex items-center gap-3 px-4 py-3", actions.length > 0 && "cursor-pointer hover:bg-slate-50/80")}
-                      onClick={() => actions.length > 0 && toggleExpanded(module.key)}
+                      className={clsx("flex items-center gap-3 px-4 py-3", expandable && "cursor-pointer hover:bg-slate-50/80")}
+                      onClick={() => expandable && toggleExpanded(module.key)}
                     >
-                      <ChevronDown className={clsx("h-4 w-4 shrink-0 text-slate-400 transition-transform", isOpen ? "rotate-0" : "-rotate-90", actions.length === 0 && "invisible")} />
+                      <ChevronDown className={clsx("h-4 w-4 shrink-0 text-slate-400 transition-transform", isOpen ? "rotate-0" : "-rotate-90", !expandable && "invisible")} />
                       <span className={clsx("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", level === "none" ? "bg-slate-100 text-slate-400" : "bg-indigo-50 text-indigo-600")}>
                         <Icon className="h-4 w-4" />
                       </span>
@@ -220,6 +231,7 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
                               {LEVEL_LABEL[level]}{mode === "actions" && level === "custom" ? ` · ${granted}/${actions.length}` : ""}
                             </span>
                           )}
+                          {!locked && level !== "none" && hiddenHere > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600"><EyeOff className="h-3 w-3" />{screens.length - hiddenHere}/{screens.length} screens</span>}
                         </div>
                         <p className="truncate text-[11px] text-slate-500">{module.description}</p>
                       </div>
@@ -251,8 +263,31 @@ export function PermissionEditor({ value, onChange, mode, organizationModules, r
                     </div>
 
                     {isOpen && !locked && (
-                      <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-3 pl-[4.25rem]">
-                        {mode === "actions" ? (
+                      <div className="space-y-3 border-t border-slate-100 bg-slate-50/40 px-4 py-3 pl-[4.25rem]">
+                        {hasScreenChoice && (
+                          <div>
+                            <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500"><MonitorSmartphone className="h-3 w-3" />Screens</p>
+                            <ul className="grid gap-x-6 gap-y-0.5 md:grid-cols-2">
+                              {screens.map((screen) => {
+                                const visible = !deniedScreens.includes(screen.key);
+                                const lastVisible = visible && screens.length - hiddenHere === 1;
+                                const highlighted = normalizedQuery && screen.name.toLowerCase().includes(normalizedQuery);
+                                return (
+                                  <li key={screen.key} className={clsx("flex items-center justify-between gap-3 rounded-lg px-2 py-1.5", highlighted ? "bg-yellow-50" : "hover:bg-white")} title={lastVisible ? "At least one screen must stay visible. Set the module to None to remove it entirely." : undefined}>
+                                    <span className={clsx("flex min-w-0 items-center gap-2 text-xs", visible && level !== "none" ? "text-slate-700" : "text-slate-400")}>
+                                      {visible ? <Eye className="h-3.5 w-3.5 shrink-0" /> : <EyeOff className="h-3.5 w-3.5 shrink-0" />}
+                                      <span className="truncate">{screen.name}</span>
+                                      {!visible && <span className="shrink-0 rounded bg-slate-200 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-slate-600">Hidden</span>}
+                                    </span>
+                                    <Switch size="sm" label={`Show ${screen.name}`} checked={visible} disabled={readOnly || level === "none" || lastVisible} onChange={(next) => toggleScreen(screen.key, next)} />
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            {level === "none" && <p className="mt-1 px-2 text-[11px] text-slate-500">Grant this module to choose its screens.</p>}
+                          </div>
+                        )}
+                        {actions.length === 0 ? null : mode === "actions" ? (
                           <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
                             {(["view", "manage"] as const).map((kind) => {
                               const list = actions.filter((action) => (kind === "view") === isViewAction(action.key));

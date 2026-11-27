@@ -5,7 +5,7 @@ import { api } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
 import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { useAuth } from "../auth/AuthContext.js";
-import { userCanAccessModule } from "../platform/module-registry.js";
+import { canUserAccessModule } from "../platform/module-registry.js";
 
 type ReportKind = "attendance" | "payroll" | "overtime" | "leave";
 const reportLabels: Record<ReportKind, string> = { attendance: "Attendance", payroll: "Payroll", overtime: "Overtime", leave: "Leave" };
@@ -21,10 +21,10 @@ export function WorkforceReportsPage() {
   const admin = user?.role === "org_admin";
   const grants = user?.actionPermissions ?? [];
   const can = useMemo(() => ({
-    attendance: userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, "attendance", user?.modulePermissionsConfigured ?? false, grants) && (admin || grants.includes("attendance.view_all")),
-    payroll: userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, "payroll", user?.modulePermissionsConfigured ?? false, grants) && (admin || grants.includes("payroll.view_earnings")),
-    overtime: userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, "overtime", user?.modulePermissionsConfigured ?? false, grants) && (admin || grants.includes("overtime.view")),
-    leave: userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, "leave", user?.modulePermissionsConfigured ?? false, grants) && (admin || grants.includes("leave.view")),
+    attendance: canUserAccessModule(user, "attendance") && (admin || grants.includes("attendance.view_all")),
+    payroll: canUserAccessModule(user, "payroll") && (admin || grants.includes("payroll.view_earnings")),
+    overtime: canUserAccessModule(user, "overtime") && (admin || grants.includes("overtime.view")),
+    leave: canUserAccessModule(user, "leave") && (admin || grants.includes("leave.view")),
   }), [user, admin, grants]);
   const available = (Object.keys(reportLabels) as ReportKind[]).filter((item) => can[item]);
   useEffect(() => { if (available.length && !can[kind]) setKind(available[0]); }, [available.join(","), kind]);

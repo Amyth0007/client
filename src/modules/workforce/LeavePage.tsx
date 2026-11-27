@@ -20,11 +20,12 @@ import { PageHeader } from "../../components/common/PageHeader.js";
 import { Tabs } from "../../components/common/Tabs.js";
 import { Badge } from "../../components/common/Badge.js";
 import { useAuth } from "../auth/AuthContext.js";
+import { hasActionPermission } from "../platform/module-registry.js";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog.js";
 
 export function LeavePage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "org_admin" || user?.role === "sub_admin";
+  const isAdmin = user?.role === "org_admin" || user?.role === "sub_admin" || hasActionPermission(user, "leave.approve", "leave.manage_types");
   const isEmployee = !isAdmin;
 
   const [types, setTypes] = useState<any[]>([]);
