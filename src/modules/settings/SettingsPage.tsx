@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { toast } from "react-hot-toast";
-import { Eye, EyeOff, Mail, Plus } from "lucide-react";
+import { Copy, Eye, EyeOff, Info, KeyRound, Lock, Mail, PenLine, Plus, ShieldCheck, UsersRound } from "lucide-react";
 import { api } from "../../services/api-client.js";
 import { useAuth } from "../auth/AuthContext.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
@@ -13,9 +13,14 @@ import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { Tabs } from "../../components/common/Tabs.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
-import { ORGANIZATION_MODULES, organizationModuleEnabled, type OrganizationModuleKey } from "../platform/module-registry.js";
+import { organizationModuleEnabled, type OrganizationModuleKey } from "../platform/module-registry.js";
 import { ACTION_PERMISSIONS } from "../platform/action-permission-registry.js";
 import { MenuOrderSettings } from "./MenuOrderSettings.js";
+import { PermissionChips, PermissionEditor } from "../../components/permissions/PermissionEditor.js";
+import { normalizePermissions, permissionSummary } from "../../components/permissions/permission-model.js";
+
+const ROLE_LABELS: Record<string, string> = { org_admin: "Organization Admin", sub_admin: "Subadmin", accounts_manager: "Account Manager", field_recovery: "Field Executive", employee: "Employee", guard: "Guard", super_admin: "Super Admin" };
+const EMPTY_ROLE_FORM = { id: "", name: "", description: "", modules: [] as string[], actions: [] as string[] };
 
 export function SettingsPage() {
   const { user, refreshProfile } = useAuth();
@@ -37,6 +42,8 @@ export function SettingsPage() {
   const [updatingStatusEmployeeId, setUpdatingStatusEmployeeId] = useState<string | null>(null);
   const [customRoleForm, setCustomRoleForm] = useState<{ id: string; name: string; description: string; modules: string[]; actions: string[] }>({ id: "", name: "", description: "", modules: [], actions: [] });
   const [settingsTab, setSettingsTab] = useState("organization");
+  const [permissionTab, setPermissionTab] = useState<"access" | "scope">("access");
+  const [roleEditorOpen, setRoleEditorOpen] = useState(false);
 
   const isOrgAdmin = user?.role === "org_admin" || user?.role === "super_admin";
   const canManageGmail = user?.role === "org_admin";
@@ -68,7 +75,7 @@ export function SettingsPage() {
   const { data: employeesData, isLoading: employeesLoading } = useQuery({
     queryKey: ["employees-list"],
     queryFn: () => (isOrgAdmin ? api.listEmployees({ limit: 50 }) : null),
-    enabled: isOrgAdmin && settingsTab === "team",
+    enabled: isOrgAdmin && (settingsTab === "team" || settingsTab === "roles"),
   });
   const { data: customRoles = [] } = useQuery({ queryKey: ["custom-roles"], queryFn: () => api.listCustomRoles(), enabled: isOrgAdmin && (settingsTab === "team" || settingsTab === "roles") });
   const { data: workforceDepartments = [] } = useQuery({ queryKey: ["workforce-departments"], queryFn: () => api.listWorkforceDepartments(), enabled: isOrgAdmin && settingsTab === "team" && Boolean(permissionsTarget) && organizationModuleEnabled(organization?.modules ?? user?.organization?.modules, "workforce") });
@@ -172,7 +179,8 @@ export function SettingsPage() {
   const onAddEmployee = async (values: any) => {
     setIsCreatingEmployee(true);
     try {
-      const selectedModules = (values.modulePermissions ?? []).filter((module: string) => values.role !== "sub_admin" || module !== "settings");
+      const individual = values.role === "sub_admin" ? normalizePermissions({ modules: values.modulePermissions ?? [], actions: values.actionPermissions ?? [] }, "actions") : null;
+      const selectedModules = individual ? individual.modules : (values.modulePermissions ?? []);
       const payload = values.role === "sub_admin" && values.customRoleId
         ? { ...values, modulePermissions: [], actionPermissions: [], customRoleId: values.customRoleId }
         : { ...values, modulePermissions: values.role === "org_admin" ? undefined : selectedModules, actionPermissions: values.role === "sub_admin" ? (values.actionPermissions ?? []).filter((permission: string) => selectedModules.includes(ACTION_PERMISSIONS.find((item) => item.key === permission)?.module ?? "")) : [], customRoleId: null };
@@ -191,16 +199,24 @@ export function SettingsPage() {
   const saveCustomRole = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      const payload = { name: customRoleForm.name, description: customRoleForm.description, modulePermissions: customRoleForm.modules, actionPermissions: customRoleForm.actions };
+      const permissions = normalizePermissions({ modules: customRoleForm.modules, actions: customRoleForm.actions }, "actions");
+      if (!permissions.actions.length) { toast.error("Grant at least one screen before saving the role"); return; }
+      const payload = { name: customRoleForm.name, description: customRoleForm.description, modulePermissions: permissions.modules, actionPermissions: permissions.actions };
       if (customRoleForm.id) await api.updateCustomRole(customRoleForm.id, payload); else await api.createCustomRole(payload);
       toast.success(customRoleForm.id ? "Custom role updated" : "Custom role created");
-      setCustomRoleForm({ id: "", name: "", description: "", modules: [], actions: [] });
+      setCustomRoleForm(EMPTY_ROLE_FORM);
+      setRoleEditorOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["custom-roles"] });
       await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
     } catch (error: any) { toast.error(error?.message || "Could not save custom role"); }
   };
   const archiveRole = async (id: string) => {
-    try { await api.archiveCustomRole(id); toast.success("Custom role archived"); await queryClient.invalidateQueries({ queryKey: ["custom-roles"] }); }
+    try {
+      await api.archiveCustomRole(id);
+      toast.success("Custom role archived");
+      if (customRoleForm.id === id) { setCustomRoleForm(EMPTY_ROLE_FORM); setRoleEditorOpen(false); }
+      await queryClient.invalidateQueries({ queryKey: ["custom-roles"] });
+    }
     catch (error: any) { toast.error(error?.message || "Could not archive role"); }
   };
 
@@ -210,13 +226,19 @@ export function SettingsPage() {
     setPermissionDraft(Object.entries(employee.modulePermissions ?? {}).filter(([key, allowed]) => allowed && !(employee.role === "sub_admin" && key === "settings") && organizationModuleEnabled(modules, key as OrganizationModuleKey)).map(([key]) => key));
     setActionPermissionDraft(employee.actionPermissions ?? []);
     setScopeDraft(employee.workforceScope ?? { mode: "organization", departmentIds: [], locationIds: [] });
+    setPermissionTab("access");
+  };
+  const openRoleEditor = (role?: any, duplicate = false) => {
+    setCustomRoleForm(role ? { id: duplicate ? "" : role.id, name: duplicate ? `${role.name} (copy)` : role.name, description: role.description ?? "", modules: role.modulePermissions ?? [], actions: role.actionPermissions ?? [] } : EMPTY_ROLE_FORM);
+    setRoleEditorOpen(true);
   };
   const saveEmployeePermissions = async () => {
     if (!permissionsTarget) return;
     setIsSavingPermissions(true);
     try {
-      const modules = permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey));
-      await api.updateEmployee(permissionsTarget.id, { modulePermissions: modules, ...(permissionsTarget.role === "sub_admin" ? { actionPermissions: actionPermissionDraft.filter((permission) => modules.includes(ACTION_PERMISSIONS.find((item) => item.key === permission)?.module ?? "")), workforceScope: scopeDraft } : {}) });
+      const isSubAdmin = permissionsTarget.role === "sub_admin";
+      const draft = normalizePermissions({ modules: permissionDraft.filter((key) => organizationModuleEnabled(availableOrganizationModules, key as OrganizationModuleKey)), actions: actionPermissionDraft }, isSubAdmin ? "actions" : "modules");
+      await api.updateEmployee(permissionsTarget.id, { modulePermissions: draft.modules, ...(isSubAdmin ? { actionPermissions: draft.actions, workforceScope: scopeDraft } : {}) });
       toast.success("Access permissions updated");
       setPermissionsTarget(null);
       await queryClient.invalidateQueries({ queryKey: ["employees-list"] });
@@ -416,21 +438,22 @@ export function SettingsPage() {
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <p className="border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500 sm:hidden">Swipe horizontally to view roles and actions.</p>
-              <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-xs">
+              <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 uppercase font-semibold">
                     <th className="whitespace-nowrap px-4 py-3">Name & Email</th>
                     <th className="whitespace-nowrap px-4 py-3">Role</th>
-                    <th className="whitespace-nowrap px-4 py-3 text-center">Status</th>
+                    <th className="whitespace-nowrap px-4 py-3">Access</th>
                     <th className="whitespace-nowrap px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {employees.map((emp: any) => (
                     <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="min-w-[250px] px-4 py-4">
+                      <td className="min-w-[230px] px-4 py-4">
                         <span className="block whitespace-nowrap font-semibold text-slate-900">{emp.name}</span>
                         <span className="block whitespace-nowrap text-slate-500">{emp.email}</span>
+                        <Badge className="mt-1" variant={emp.status === "active" ? "success" : "neutral"}>{emp.status}</Badge>
                       </td>
                       <td className="whitespace-nowrap px-4 py-4 text-slate-700">
                         {emp.id === user?.id ? (
@@ -449,16 +472,24 @@ export function SettingsPage() {
                           </>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4 text-center">
-                        <Badge variant={emp.status === "active" ? "success" : "neutral"}>
-                          {emp.status}
-                        </Badge>
+                      <td className="min-w-[190px] px-4 py-4">
+                        {emp.role === "org_admin" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700"><ShieldCheck className="h-3 w-3" />Full access</span>
+                        ) : (
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-semibold text-slate-700">
+                              {emp.customRoleName ? <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-violet-700"><KeyRound className="h-3 w-3" />{emp.customRoleName}</span> : null}
+                              {permissionSummary({ modules: Object.entries(emp.modulePermissions ?? {}).filter(([, on]) => on).map(([key]) => key), actions: emp.actionPermissions ?? [] }, emp.role === "sub_admin" ? "actions" : "modules")}
+                            </span>
+                            <PermissionChips modules={Object.entries(emp.modulePermissions ?? {}).filter(([, on]) => on).map(([key]) => key)} max={3} />
+                          </div>
+                        )}
                       </td>
-                      <td className="min-w-[250px] whitespace-nowrap px-4 py-4 text-right">
+                      <td className="whitespace-nowrap px-4 py-4 text-right">
                         {emp.id !== user?.id && (
                           <>
                           <button onClick={() => handleResetEmployeePassword(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Set password</button>
-                          {emp.role !== "org_admin" && <button onClick={() => editEmployeePermissions(emp)} className="mr-3 text-xs font-medium text-indigo-600 hover:underline">Screens</button>}
+                          {emp.role !== "org_admin" && <button onClick={() => editEmployeePermissions(emp)} className="mr-3 inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"><ShieldCheck className="h-3.5 w-3.5" />Permissions</button>}
                           <button
                             onClick={() => handleToggleEmployeeStatus(emp)}
                             disabled={updatingStatusEmployeeId === emp.id}
@@ -482,16 +513,84 @@ export function SettingsPage() {
         </Card>
       )}
 
-      {settingsTab === "roles" && isOrgAdmin && <Card title="Custom subadmin roles" subtitle="Create reusable, tenant-scoped module and action bundles. Role changes apply to assigned subadmins immediately.">
-        <form onSubmit={(event) => void saveCustomRole(event)} className="grid gap-3 sm:grid-cols-2">
-          <Input label="Role name" required minLength={2} value={customRoleForm.name} onChange={(event) => setCustomRoleForm({ ...customRoleForm, name: event.target.value })} />
-          <Input label="Description" value={customRoleForm.description} onChange={(event) => setCustomRoleForm({ ...customRoleForm, description: event.target.value })} />
-          <fieldset className="rounded-xl border p-3 sm:col-span-2"><legend className="px-1 text-sm font-semibold">Enabled modules</legend><div className="grid gap-2 sm:grid-cols-3">{ORGANIZATION_MODULES.filter((module) => module.key !== "settings").sort((a, b) => a.name.localeCompare(b.name)).map((module) => { const enabled = organizationModuleEnabled(availableOrganizationModules, module.key); const checked = customRoleForm.modules.includes(module.key); return <label key={module.key} className={`flex items-center gap-2 text-xs ${enabled ? "" : "opacity-50"}`}><input type="checkbox" disabled={!enabled} checked={checked} onChange={(event) => setCustomRoleForm((current) => ({ ...current, modules: event.target.checked ? [...current.modules, module.key] : current.modules.filter((key) => key !== module.key), actions: event.target.checked ? current.actions : current.actions.filter((key) => ACTION_PERMISSIONS.find((permission) => permission.key === key)?.module !== module.key) }))} />{module.name}</label>; })}</div></fieldset>
-          <fieldset className="rounded-xl border p-3 sm:col-span-2"><legend className="px-1 text-sm font-semibold">Allowed actions</legend>{customRoleForm.modules.length === 0 ? <p className="text-xs text-slate-500">Choose an enabled module first.</p> : <div className="grid gap-3 md:grid-cols-2">{ORGANIZATION_MODULES.filter((module) => customRoleForm.modules.includes(module.key)).sort((a, b) => a.name.localeCompare(b.name)).map((module) => { const moduleActions = ACTION_PERMISSIONS.filter((permission) => permission.module === module.key).sort((a, b) => a.name.localeCompare(b.name)); return moduleActions.length ? <div key={module.key} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3"><h3 className="mb-2 text-xs font-semibold text-slate-800">{module.name}</h3><div className="space-y-2">{moduleActions.map((permission) => <label key={permission.key} className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={customRoleForm.actions.includes(permission.key)} onChange={(event) => setCustomRoleForm((current) => ({ ...current, actions: event.target.checked ? [...current.actions, permission.key] : current.actions.filter((key) => key !== permission.key) }))} />{permission.name}</label>)}</div></div> : null; })}</div>}</fieldset>
-          <div className="flex justify-end gap-2 sm:col-span-2">{customRoleForm.id && <Button type="button" variant="outline" onClick={() => setCustomRoleForm({ id: "", name: "", description: "", modules: [], actions: [] })}>Cancel edit</Button>}<Button type="submit">{customRoleForm.id ? "Save role" : "Create role"}</Button></div>
+      {settingsTab === "roles" && isOrgAdmin && (
+        <Card
+          title="Custom subadmin roles"
+          subtitle="Reusable permission sets for subadmins. Editing a role updates everyone assigned to it immediately."
+          action={<Button size="sm" onClick={() => openRoleEditor()}><Plus className="h-4 w-4" /><span>New role</span></Button>}
+        >
+          {customRoles.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 py-10 text-center">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-50 text-indigo-600"><KeyRound className="h-5 w-5" /></span>
+              <div><p className="text-sm font-semibold text-slate-800">No custom roles yet</p><p className="text-xs text-slate-500">Bundle screens and actions once (for example “Accounts Head”), then assign it to any subadmin.</p></div>
+              <Button size="sm" onClick={() => openRoleEditor()}><Plus className="h-4 w-4" /><span>Create the first role</span></Button>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => {
+                const members = employees.filter((emp: any) => emp.customRoleId === role.id);
+                return (
+                  <div key={role.id} className="flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition-shadow hover:shadow-md">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><KeyRound className="h-4 w-4" /></span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-900">{role.name}</p>
+                        <p className="line-clamp-2 text-xs text-slate-500">{role.description || "No description"}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{permissionSummary({ modules: role.modulePermissions, actions: role.actionPermissions }, "actions")}</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700"><UsersRound className="h-3 w-3" />{members.length} member{members.length === 1 ? "" : "s"}</span>
+                    </div>
+                    <div className="mt-2"><PermissionChips modules={role.modulePermissions} max={4} /></div>
+                    {members.length > 0 && <p className="mt-2 truncate text-[11px] text-slate-500">{members.map((emp: any) => emp.name).join(", ")}</p>}
+                    <div className="mt-auto flex gap-2 pt-4">
+                      <Button size="sm" variant="outline" onClick={() => openRoleEditor(role)}><PenLine className="h-3.5 w-3.5" /><span>Edit</span></Button>
+                      <Button size="sm" variant="ghost" onClick={() => openRoleEditor(role, true)}><Copy className="h-3.5 w-3.5" /><span>Duplicate</span></Button>
+                      <Button size="sm" variant="ghost" className="ml-auto text-rose-600 hover:text-rose-700" onClick={() => archiveRole(role.id)}>Archive</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Modal
+        isOpen={roleEditorOpen}
+        onClose={() => setRoleEditorOpen(false)}
+        maxWidth="4xl"
+        title={customRoleForm.id ? `Edit role · ${customRoleForm.name}` : "New subadmin role"}
+        description="Choose an access level per screen, or expand a screen to switch individual actions on and off."
+      >
+        <form onSubmit={(event) => void saveCustomRole(event)} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input label="Role name" required minLength={2} placeholder="e.g. Accounts Head" value={customRoleForm.name} onChange={(event) => setCustomRoleForm({ ...customRoleForm, name: event.target.value })} />
+            <Input label="Description" placeholder="What this role is for" value={customRoleForm.description} onChange={(event) => setCustomRoleForm({ ...customRoleForm, description: event.target.value })} />
+          </div>
+          {customRoleForm.id && employees.some((emp: any) => emp.customRoleId === customRoleForm.id) && (
+            <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-900">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Saving applies immediately to {employees.filter((emp: any) => emp.customRoleId === customRoleForm.id).map((emp: any) => emp.name).join(", ")}.</span>
+            </div>
+          )}
+          <PermissionEditor
+            mode="actions"
+            value={{ modules: customRoleForm.modules, actions: customRoleForm.actions }}
+            onChange={(next) => setCustomRoleForm((current) => ({ ...current, modules: next.modules, actions: next.actions }))}
+            organizationModules={availableOrganizationModules}
+            restrictedModules={["settings"]}
+          />
+          <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-3 border-t border-slate-100 bg-white/95 px-6 py-3 backdrop-blur">
+            <span className="text-xs text-slate-500">{permissionSummary(normalizePermissions({ modules: customRoleForm.modules, actions: customRoleForm.actions }, "actions"), "actions")}</span>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setRoleEditorOpen(false)}>Cancel</Button>
+              <Button type="submit">{customRoleForm.id ? "Save role" : "Create role"}</Button>
+            </div>
+          </div>
         </form>
-        <div className="mt-4 divide-y">{[...customRoles].sort((a: any, b: any) => a.name.localeCompare(b.name)).map((role: any) => <div key={role.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{role.name}</p><p className="text-xs text-slate-500">{role.description || "No description"} · {role.modulePermissions.length} module(s) · {role.actionPermissions.length} action(s)</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setCustomRoleForm({ id: role.id, name: role.name, description: role.description, modules: role.modulePermissions, actions: role.actionPermissions })}>Edit</Button><Button size="sm" variant="secondary" onClick={() => archiveRole(role.id)}>Archive</Button></div></div>)}</div>
-      </Card>}
+      </Modal>
 
       {/* Add Employee Modal */}
       <Modal
@@ -499,6 +598,7 @@ export function SettingsPage() {
         onClose={() => setEmployeeModalOpen(false)}
         title="Add New Employee"
         description="Provision team member with temporary password and designated role"
+        maxWidth="3xl"
       >
         <form onSubmit={handleEmpSubmit(onAddEmployee)} className="space-y-4">
           <Input
@@ -545,9 +645,26 @@ export function SettingsPage() {
 
           {watchEmp("role") === "sub_admin" && <CustomSelect label="Custom permission role (optional)" value={watchEmp("customRoleId")} onChange={(event) => setEmpValue("customRoleId", event.target.value, { shouldDirty: true })} options={[{ value: "", label: "Configure individual permissions below" }, ...customRoles.map((role: any) => ({ value: role.id, label: role.name }))]} />}
 
-          {watchEmp("role") !== "org_admin" && !(watchEmp("role") === "sub_admin" && watchEmp("customRoleId")) && <fieldset className="rounded-xl border border-slate-200 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Screens this staff member can access</legend><p className="mb-2 text-xs text-slate-500">Select enabled modules. Subadmins cannot manage organization settings or team access.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); const restrictedForSubAdmin = watchEmp("role") === "sub_admin" && module.key === "settings"; return <label key={module.key} className={`flex items-start gap-2 rounded-lg p-2 text-xs ${enabledForOrganization && !restrictedForSubAdmin ? "hover:bg-slate-50" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" value={module.key} disabled={!enabledForOrganization || restrictedForSubAdmin} {...regEmp("modulePermissions")} /><span><span className="block font-medium text-slate-800">{module.name}{["attendance", "visitors"].includes(module.key) && !enabledForOrganization ? " · enable in Platform Administration" : restrictedForSubAdmin ? " · org admin only" : ""}</span><span className="text-slate-500">{module.description}</span></span></label>; })}</div></fieldset>}
-
-          {watchEmp("role") === "sub_admin" && !watchEmp("customRoleId") && <fieldset className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Allowed actions</legend><p className="mb-2 text-xs text-slate-600">Choose actions inside the enabled modules. View access is limited to each module’s read-only screens.</p><div className="grid gap-2 sm:grid-cols-2">{ACTION_PERMISSIONS.filter((permission) => (watchEmp("modulePermissions") ?? []).includes(permission.module)).map((permission) => <label key={permission.key} className="flex items-center gap-2 rounded-lg bg-white p-2 text-xs text-slate-700"><input type="checkbox" value={permission.key} {...regEmp("actionPermissions")} /><span>{permission.name}</span></label>)}</div>{(watchEmp("modulePermissions") ?? []).length === 0 && <p className="text-xs text-slate-500">Select a module above to see its actions.</p>}</fieldset>}
+          {watchEmp("role") === "org_admin" ? (
+            <div className="flex gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />Organization admins have full access to every screen and action, including team and workspace settings.</div>
+          ) : watchEmp("role") === "sub_admin" && watchEmp("customRoleId") ? (
+            <div className="space-y-2">
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800"><Lock className="h-3.5 w-3.5 text-slate-400" />Permissions from the “{customRoles.find((role: any) => role.id === watchEmp("customRoleId"))?.name}” role</p>
+              <PermissionEditor readOnly mode="actions" value={{ modules: customRoles.find((role: any) => role.id === watchEmp("customRoleId"))?.modulePermissions ?? [], actions: customRoles.find((role: any) => role.id === watchEmp("customRoleId"))?.actionPermissions ?? [] }} onChange={() => undefined} organizationModules={availableOrganizationModules} restrictedModules={["settings"]} />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Permissions</p>
+              <PermissionEditor
+                mode={watchEmp("role") === "sub_admin" ? "actions" : "modules"}
+                value={{ modules: watchEmp("modulePermissions") ?? [], actions: watchEmp("actionPermissions") ?? [] }}
+                onChange={(next) => { setEmpValue("modulePermissions", next.modules, { shouldDirty: true }); setEmpValue("actionPermissions", next.actions, { shouldDirty: true }); }}
+                organizationModules={availableOrganizationModules}
+                restrictedModules={watchEmp("role") === "sub_admin" ? ["settings"] : []}
+                roleLabel={ROLE_LABELS[watchEmp("role")]?.toLowerCase()}
+              />
+            </div>
+          )}
 
           <Input
             label="Temporary Password"
@@ -586,11 +703,95 @@ export function SettingsPage() {
         </div>
       </Modal>
 
-      <Modal isOpen={Boolean(permissionsTarget)} onClose={() => setPermissionsTarget(null)} title="Staff screen access" description={permissionsTarget ? `Choose the screens ${permissionsTarget.name} can open.` : undefined}>
-        <div className="space-y-4"><p className="text-xs text-slate-600">Screens must also be enabled for the organization by the platform administrator. Subadmins cannot manage organization settings or team access.</p><div className="grid gap-2 sm:grid-cols-2">{ORGANIZATION_MODULES.map((module) => { const enabledForOrganization = organizationModuleEnabled(availableOrganizationModules, module.key); const restrictedForSubAdmin = permissionsTarget?.role === "sub_admin" && module.key === "settings"; return <label key={module.key} className={`flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm ${enabledForOrganization && !restrictedForSubAdmin ? "" : "cursor-not-allowed opacity-50"}`}><input type="checkbox" checked={permissionDraft.includes(module.key)} disabled={!enabledForOrganization || restrictedForSubAdmin} onChange={(event) => setPermissionDraft((current) => event.target.checked ? [...current, module.key] : current.filter((key) => key !== module.key))} /><span><span className="block font-medium">{module.name}{["attendance", "visitors"].includes(module.key) && !enabledForOrganization ? " · disabled for organization" : restrictedForSubAdmin ? " · org admin only" : ""}</span><span className="text-xs text-slate-500">{module.description}</span></span></label>; })}</div>
-          {permissionsTarget?.role === "sub_admin" && <fieldset className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Allowed actions</legend><p className="mb-2 text-xs text-slate-600">Action access is checked by the API and is limited to the selected modules.</p><div className="grid gap-2 sm:grid-cols-2">{ACTION_PERMISSIONS.filter((permission) => permissionDraft.includes(permission.module)).map((permission) => <label key={permission.key} className="flex items-center gap-2 rounded-lg bg-white p-2 text-xs text-slate-700"><input type="checkbox" checked={actionPermissionDraft.includes(permission.key)} onChange={(event) => setActionPermissionDraft((current) => event.target.checked ? [...current, permission.key] : current.filter((key) => key !== permission.key))} /><span>{permission.name}</span></label>)}</div></fieldset>}
-          {permissionsTarget?.role === "sub_admin" && <fieldset className="rounded-xl border border-amber-100 bg-amber-50/40 p-3"><legend className="px-1 text-sm font-semibold text-slate-800">Workforce data scope</legend><p className="mb-3 text-xs text-slate-600">Organization-wide access is the default. Selected departments and locations are combined as an intersection; an unselected dimension stays unrestricted.</p><label className="flex items-center gap-2 text-sm"><input type="radio" checked={scopeDraft.mode === "organization"} onChange={() => setScopeDraft({ ...scopeDraft, mode: "organization" })} />All organization workforce records</label><label className="mt-2 flex items-center gap-2 text-sm"><input type="radio" checked={scopeDraft.mode === "selected"} onChange={() => setScopeDraft({ ...scopeDraft, mode: "selected" })} />Restrict to selected departments or locations</label>{scopeDraft.mode === "selected" && <div className="mt-3 grid gap-4 sm:grid-cols-2"><div><p className="mb-2 text-xs font-semibold">Departments</p>{workforceDepartments.length ? workforceDepartments.map((item: any) => <label key={item.id} className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={scopeDraft.departmentIds.includes(item.id)} onChange={(event) => setScopeDraft({ ...scopeDraft, departmentIds: event.target.checked ? [...scopeDraft.departmentIds, item.id] : scopeDraft.departmentIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <p className="text-xs text-slate-500">No departments available.</p>}</div><div><p className="mb-2 text-xs font-semibold">Work locations</p>{attendanceConfig?.locations?.length ? attendanceConfig.locations.map((item: any) => <label key={item.id} className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={scopeDraft.locationIds.includes(item.id)} onChange={(event) => setScopeDraft({ ...scopeDraft, locationIds: event.target.checked ? [...scopeDraft.locationIds, item.id] : scopeDraft.locationIds.filter((id) => id !== item.id) })} />{item.name}</label>) : <p className="text-xs text-slate-500">Enable Attendance and configure office locations to scope by location.</p>}</div></div>}</fieldset>}
-          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setPermissionsTarget(null)}>Cancel</Button><Button isLoading={isSavingPermissions} onClick={() => saveEmployeePermissions()}>Save access</Button></div></div>
+      <Modal
+        isOpen={Boolean(permissionsTarget)}
+        onClose={() => setPermissionsTarget(null)}
+        maxWidth="4xl"
+        title={permissionsTarget ? `Permissions · ${permissionsTarget.name}` : "Permissions"}
+        description={permissionsTarget ? `${permissionsTarget.customRoleName ? `Subadmin · ${permissionsTarget.customRoleName}` : ROLE_LABELS[permissionsTarget.role] ?? permissionsTarget.role} · ${permissionsTarget.email}` : undefined}
+      >
+        {permissionsTarget && (() => {
+          const isSubAdmin = permissionsTarget.role === "sub_admin";
+          const assignedRole = isSubAdmin && permissionsTarget.customRoleId ? customRoles.find((role: any) => role.id === permissionsTarget.customRoleId) : null;
+          const draft = { modules: permissionDraft, actions: actionPermissionDraft };
+          return (
+            <div className="space-y-4">
+              {assignedRole ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50/70 p-3">
+                    <p className="flex items-start gap-2 text-xs text-violet-900"><KeyRound className="mt-0.5 h-4 w-4 shrink-0" /><span>Permissions come from the <strong>{assignedRole.name}</strong> role and change automatically when the role is edited.</span></p>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setPermissionsTarget(null); setSettingsTab("roles"); openRoleEditor(assignedRole); }}>Edit role</Button>
+                      <Button size="sm" variant="secondary" onClick={async () => { if (await handleChangeEmployeeRoleChoice(permissionsTarget, "sub_admin")) setPermissionsTarget(null); }}>Use individual permissions</Button>
+                    </div>
+                  </div>
+                  <PermissionEditor readOnly mode="actions" value={{ modules: assignedRole.modulePermissions, actions: assignedRole.actionPermissions }} onChange={() => undefined} organizationModules={availableOrganizationModules} restrictedModules={["settings"]} />
+                </>
+              ) : (
+                <>
+                  {isSubAdmin && (
+                    <Tabs
+                      variant="pills"
+                      activeTab={permissionTab}
+                      onChange={(id) => setPermissionTab(id as "access" | "scope")}
+                      tabs={[
+                        { id: "access", label: "Screens & actions", count: permissionSummary(normalizePermissions(draft, "actions"), "actions") },
+                        { id: "scope", label: "Data scope", badge: scopeDraft.mode === "selected" ? "Restricted" : undefined },
+                      ]}
+                    />
+                  )}
+                  {(!isSubAdmin || permissionTab === "access") && (
+                    <PermissionEditor
+                      mode={isSubAdmin ? "actions" : "modules"}
+                      value={draft}
+                      onChange={(next) => { setPermissionDraft(next.modules); setActionPermissionDraft(next.actions); }}
+                      organizationModules={availableOrganizationModules}
+                      restrictedModules={isSubAdmin ? ["settings"] : []}
+                      roleLabel={ROLE_LABELS[permissionsTarget.role]?.toLowerCase()}
+                    />
+                  )}
+                  {isSubAdmin && permissionTab === "scope" && (
+                    <div className="space-y-3">
+                      <p className="text-xs text-slate-600">Limit which employee records this subadmin can see in Workforce, Attendance, Leave, Overtime and Payroll. Departments and locations combine as an intersection; an empty list leaves that dimension unrestricted.</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {([["organization", "Whole organization", "Every employee record"], ["selected", "Selected departments / locations", "Only matching employee records"]] as const).map(([mode, title, hint]) => (
+                          <button key={mode} type="button" onClick={() => setScopeDraft({ ...scopeDraft, mode })} className={`rounded-xl border p-3 text-left transition-colors ${scopeDraft.mode === mode ? "border-indigo-400 bg-indigo-50/70 ring-2 ring-indigo-100" : "border-slate-200 hover:bg-slate-50"}`}>
+                            <span className="block text-sm font-semibold text-slate-900">{title}</span>
+                            <span className="text-xs text-slate-500">{hint}</span>
+                          </button>
+                        ))}
+                      </div>
+                      {scopeDraft.mode === "selected" && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {([["Departments", workforceDepartments, "departmentIds", "No departments available."], ["Work locations", attendanceConfig?.locations ?? [], "locationIds", "Enable Attendance and configure office locations to scope by location."]] as const).map(([label, items, field, empty]) => (
+                            <div key={field} className="rounded-xl border border-slate-200 p-3">
+                              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{label} · {scopeDraft[field].length || "all"}</p>
+                              {(items as any[]).length ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(items as any[]).map((item: any) => {
+                                    const on = scopeDraft[field].includes(item.id);
+                                    return <button key={item.id} type="button" onClick={() => setScopeDraft({ ...scopeDraft, [field]: on ? scopeDraft[field].filter((id) => id !== item.id) : [...scopeDraft[field], item.id] })} className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${on ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{item.name}</button>;
+                                  })}
+                                </div>
+                              ) : <p className="text-xs text-slate-500">{empty}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-3 border-t border-slate-100 bg-white/95 px-6 py-3 backdrop-blur">
+                <span className="text-xs text-slate-500">{assignedRole ? "Managed by role" : permissionSummary(normalizePermissions(draft, isSubAdmin ? "actions" : "modules"), isSubAdmin ? "actions" : "modules")}</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setPermissionsTarget(null)}>{assignedRole ? "Close" : "Cancel"}</Button>
+                  {!assignedRole && <Button isLoading={isSavingPermissions} onClick={() => saveEmployeePermissions()}>Save permissions</Button>}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );

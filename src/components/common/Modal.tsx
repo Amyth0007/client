@@ -7,7 +7,7 @@ type ModalProps = {
   title: string;
   description?: string;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl";
 };
 
 export function Modal({
@@ -39,6 +39,9 @@ export function Modal({
     md: "max-w-md",
     lg: "max-w-lg",
     xl: "max-w-xl",
+    "2xl": "max-w-2xl",
+    "3xl": "max-w-3xl",
+    "4xl": "max-w-4xl",
   }[maxWidth];
 
   return (
@@ -51,7 +54,7 @@ export function Modal({
 
       {/* Modal Dialog */}
       <div
-        className={`relative w-full max-h-[80vh] ${maxWidthClass} rounded-2xl bg-white shadow-xl transition-all border border-slate-100 overflow-hidden z-10 flex flex-col`}
+        className={`relative w-full ${["2xl", "3xl", "4xl"].includes(maxWidth) ? "max-h-[90vh]" : "max-h-[80vh]"} ${maxWidthClass} rounded-2xl bg-white shadow-xl transition-all border border-slate-100 overflow-hidden z-10 flex flex-col`}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>

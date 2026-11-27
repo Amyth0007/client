@@ -27,6 +27,7 @@ export const ACTION_PERMISSIONS = [
   { key: "attendance.manage_policy", module: "attendance", name: "Manage attendance rules" },
   { key: "attendance.manage_locations", module: "attendance", name: "Manage office locations" },
   { key: "attendance.adjust", module: "attendance", name: "Adjust attendance records" },
+  { key: "attendance.guard_punch", module: "attendance", name: "Record employee check-in/out on the guard station" },
   { key: "attendance.review_corrections", module: "attendance", name: "Review correction requests" },
   { key: "workforce.view", module: "workforce", name: "View employee profiles" },
   { key: "workforce.manage_employees", module: "workforce", name: "Manage employee profiles" },
