@@ -13,6 +13,7 @@ export const ORGANIZATION_MODULES = [
   { key: "overtime", name: "Overtime", description: "Overtime policies, requests, review, and payable hours", defaultEnabled: false },
   { key: "leave", name: "Leave", description: "Leave types, balances, requests, and approvals", defaultEnabled: false },
   { key: "compliance", name: "Compliance rules", description: "Versioned jurisdictional payroll rule configuration", defaultEnabled: false },
+  { key: "visitors", name: "Visitor Management", description: "Visitor forms, registration passes, QR codes, and visitor records", defaultEnabled: false },
 ] as const;
 
 export type OrganizationModuleKey = (typeof ORGANIZATION_MODULES)[number]["key"];

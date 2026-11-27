@@ -12,6 +12,8 @@ import {
   Wallet,
   Timer,
   Umbrella,
+  ClipboardList,
+  ScanLine,
   type LucideIcon,
 } from "lucide-react";
 import { userCanAccessModule, type OrganizationModuleKey } from "../../modules/platform/module-registry.js";
@@ -25,7 +27,23 @@ export type NavGroup = { id: string; label: string; icon: LucideIcon; items: Nav
 export function buildNavGroups(user: NavUser): NavGroup[] {
   const moduleEnabled = (moduleKey: OrganizationModuleKey) =>
     !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
-  const groups: NavGroup[] = user?.role === "guard" ? [{ id: "guard", label: "Attendance", icon: CalendarCheck, items: [{ label: "Guard station", path: "/guard/attendance", icon: CalendarCheck }] }] : user?.role === "super_admin" ? [{
+  const visitorAdmin = user?.role === "org_admin" || user?.role === "super_admin";
+  const canManageVisitorForms = visitorAdmin || user?.actionPermissions?.includes("visitors.manage_forms") === true;
+  const canRegisterVisitors = visitorAdmin || user?.role === "guard" || user?.actionPermissions?.includes("visitors.register") === true;
+  const canViewVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.view") === true;
+  const canCheckVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.check_in") === true || user?.actionPermissions?.includes("visitors.check_out") === true;
+  const visitorItems: NavItem[] = user?.role === "guard"
+    ? (canRegisterVisitors || canCheckVisitors ? [{ label: "Visitor desk", path: "/guard/visitors", icon: ClipboardList }] : [])
+    : [
+    ...(canManageVisitorForms ? [{ label: "Forms & passes", path: "/visitor-forms", icon: ClipboardList }] : []),
+    ...(canRegisterVisitors ? [{ label: "Register a visitor", path: "/visitor-register-internal", icon: Users }] : []),
+    ...(canCheckVisitors ? [{ label: "Check in / out", path: "/visitor-checkin", icon: ScanLine }] : []),
+    ...(canViewVisitors ? [{ label: "Registrations", path: "/visitor-records", icon: FileText }] : []),
+  ];
+  const groups: NavGroup[] = user?.role === "guard" ? [
+    ...(moduleEnabled("attendance") ? [{ id: "guard", label: "Guard station", icon: CalendarCheck, items: [{ label: "Attendance", path: "/guard/attendance", icon: CalendarCheck }] }] : []),
+    ...(moduleEnabled("visitors") && visitorItems.length ? [{ id: "visitors", label: "Visitor Management", icon: ClipboardList, items: visitorItems }] : []),
+  ] : user?.role === "super_admin" ? [{
     id: "platform",
     label: "Platform",
     icon: Building2,
@@ -58,6 +76,7 @@ export function buildNavGroups(user: NavUser): NavGroup[] {
         ...(moduleEnabled("attendance") ? [{ label: "Attendance", path: "/attendance", icon: CalendarCheck }] : []),
       ],
     },
+    ...(moduleEnabled("visitors") && visitorItems.length ? [{ id: "visitors", label: "Visitor Management", icon: ClipboardList, items: visitorItems }] : []),
     {
       id: "workspace",
       label: "Workspace",

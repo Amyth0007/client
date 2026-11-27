@@ -32,6 +32,7 @@ import { OvertimePage } from "../../modules/workforce/OvertimePage.js";
 import { LeavePage } from "../../modules/workforce/LeavePage.js";
 import { WorkforceReportsPage } from "../../modules/workforce/WorkforceReportsPage.js";
 import { CompliancePage } from "../../modules/workforce/CompliancePage.js";
+import { InternalVisitorRegistrationPage, VisitorBuilderPage, PublicVisitorRegistrationPage, VisitorRecordsPage } from "../../modules/visitors/VisitorPages.js";
 
 const MyPayslipsPage = lazy(() => import("../../modules/workforce/MyPayslipsPage.js").then((module) => ({ default: module.MyPayslipsPage })));
 import { useAuth } from "../../modules/auth/AuthContext.js";
@@ -77,6 +78,8 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/employee-login" element={<LoginPage employeeLogin />} />
       <Route path="/field-login" element={<Navigate to="/employee-login" replace />} />
+      <Route path="/register/:code" element={<PublicVisitorRegistrationPage />} />
+      <Route path="/visitor-register/:publicCode" element={<PublicVisitorRegistrationPage />} />
 
       {/* Authenticated routes */}
       <Route element={<ProtectedRoute />}>
@@ -123,6 +126,11 @@ export function AppRoutes() {
           {/* Settings */}
           <Route element={<ModuleGate moduleKey="settings" />}>
             <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+          <Route element={<ModuleGate moduleKey="visitors" />}>
+            <Route element={<ProtectedRoute allowedRoles={["org_admin", "sub_admin"]} />}><Route path="/visitor-forms" element={<VisitorBuilderPage />} /></Route>
+            <Route element={<ProtectedRoute allowedRoles={["org_admin", "sub_admin"]} />}><Route path="/visitor-records" element={<VisitorRecordsPage />} /></Route>
+            <Route element={<ProtectedRoute allowedRoles={["org_admin", "sub_admin", "guard"]} />}><Route path="/visitor-register-internal" element={<InternalVisitorRegistrationPage />} /><Route path="/visitor-checkin" element={<InternalVisitorRegistrationPage />} /><Route path="/guard/visitors" element={<InternalVisitorRegistrationPage />} /></Route>
           </Route>
           <Route element={<ModuleGate moduleKey="attendance" />}>
             <Route path="/attendance" element={<AttendancePage />} />

@@ -18,6 +18,7 @@ export type UserProfile = {
   mustChangePassword: boolean;
   organization?: {
     id: string;
+    publicCode?: string;
     name: string;
     legalName?: string;
     address?: string;

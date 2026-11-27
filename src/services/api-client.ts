@@ -227,6 +227,26 @@ function request<T>(path: string, options: RequestInit = {}, isRetry = false): P
 }
 
 export const api = {
+  listVisitorForms: async () => (await request<any[]>("/visitors/forms")).data,
+  listPublishedVisitorForms: async () => (await request<any[]>("/visitors/published-forms")).data,
+  submitInternalVisitorRegistration: async (formId: string, values: Record<string, unknown>, channel: "admin" | "guard", photoAssetId?: string) => (await request<any>("/visitors/registrations", { method: "POST", body: JSON.stringify({ formId, values, channel, photoAssetId }) })).data,
+  getVisitorPass: async (code: string) => (await request<any>(`/visitors/passes/${encodeURIComponent(code)}`)).data,
+  submitVisitorPassRegistration: async (code: string, values: Record<string, unknown>, photoAssetId?: string) => (await request<any>(`/visitors/passes/${encodeURIComponent(code)}/registrations`, { method: "POST", body: JSON.stringify({ values, photoAssetId }) })).data,
+  getVisitorQrRecord: async (code: string) => (await request<any>(`/visitors/visitor-qr/${encodeURIComponent(code)}`)).data,
+  checkInVisitor: async (code: string) => (await request<any>(`/visitors/visitor-qr/${encodeURIComponent(code)}/check-in`, { method: "POST", body: JSON.stringify({}) })).data,
+  checkOutVisitor: async (code: string) => (await request<any>(`/visitors/visitor-qr/${encodeURIComponent(code)}/check-out`, { method: "POST", body: JSON.stringify({}) })).data,
+  saveVisitorForm: async (form: any) => (await request<any>(`/visitors/forms${form.id ? `/${form.id}` : ""}`, { method: form.id ? "PUT" : "POST", body: JSON.stringify(form) })).data,
+  createVisitorPass: async (id: string, label: string) => (await request<any>(`/visitors/forms/${id}/passes`, { method: "POST", body: JSON.stringify({ label }) })).data,
+  listVisitorRegistrations: async () => (await request<any[]>("/visitors/registrations")).data,
+  getPublicVisitorForm: async (code: string, publicCode?: string) => (await request<any>(code === "current" && publicCode ? `/visitors/public/organization/${encodeURIComponent(publicCode)}/current` : `/visitors/public/${encodeURIComponent(code)}`)).data,
+  submitPublicVisitorForm: async (code: string, values: Record<string, unknown>) => (await request<any>(`/visitors/public/${encodeURIComponent(code)}/registrations`, { method: "POST", body: JSON.stringify({ values }) })).data,
+  uploadPublicVisitorFile: async (code: string, fieldKey: string, file: File) => {
+    const form = new FormData(); form.append("file", file); form.append("fieldKey", fieldKey);
+    const response = await trackedFetch(apiUrl(`/visitors/public/${encodeURIComponent(code)}/uploads`), { method: "POST", body: form });
+    const payload = await response.json();
+    if (!response.ok || payload.success === false) throw new ApiError(payload?.error?.code || "UPLOAD_FAILED", payload?.error?.message || "File upload failed", response.status);
+    return payload.data;
+  },
   // Auth
   login: async (credentials: { email: string; password: string }) => {
     const requestGeneration = authSessionGeneration;
