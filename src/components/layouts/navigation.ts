@@ -29,9 +29,10 @@ export function buildNavGroups(user: NavUser): NavGroup[] {
     !user?.organizationId || userCanAccessModule(user?.role, user?.organization?.modules, user?.modulePermissions, moduleKey, user?.modulePermissionsConfigured ?? false, user?.actionPermissions);
   const visitorAdmin = user?.role === "org_admin" || user?.role === "super_admin";
   const canManageVisitorForms = visitorAdmin || user?.actionPermissions?.includes("visitors.manage_forms") === true;
-  const canRegisterVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.register") === true;
+  const guardHasVisitorDesk = user?.role === "guard" && user.modulePermissions?.visitors === true;
+  const canRegisterVisitors = visitorAdmin || guardHasVisitorDesk || user?.actionPermissions?.includes("visitors.register") === true;
   const canViewVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.view") === true;
-  const canCheckVisitors = visitorAdmin || user?.actionPermissions?.includes("visitors.check_in") === true || user?.actionPermissions?.includes("visitors.check_out") === true;
+  const canCheckVisitors = visitorAdmin || guardHasVisitorDesk || user?.actionPermissions?.includes("visitors.check_in") === true || user?.actionPermissions?.includes("visitors.check_out") === true;
   const visitorItems: NavItem[] = user?.role === "guard"
     ? (canRegisterVisitors || canCheckVisitors ? [{ label: "Visitor desk", path: "/guard/visitors", icon: ClipboardList }] : [])
     : [
