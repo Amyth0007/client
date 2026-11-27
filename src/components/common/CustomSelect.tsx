@@ -25,6 +25,8 @@ export type CustomSelectProps = {
   searchable?: boolean;
   helperText?: string;
   portal?: boolean;
+  size?: "sm" | "md";
+  "aria-label"?: string;
 };
 
 export function CustomSelect({
@@ -42,6 +44,8 @@ export function CustomSelect({
   searchable,
   helperText,
   portal = false,
+  size = "md",
+  "aria-label": ariaLabel,
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -154,8 +158,10 @@ export function CustomSelect({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-label={ariaLabel}
         className={clsx(
-          "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition-all duration-150 focus:outline-none focus:ring-2",
+          "flex w-full items-center justify-between rounded-xl border text-left transition-all duration-150 focus:outline-none focus:ring-2",
+          size === "sm" ? "h-8 rounded-lg px-2.5 text-xs" : "px-3 py-2 text-sm",
           disabled && "cursor-not-allowed bg-slate-100 text-slate-400 opacity-75",
           error
             ? "border-rose-300 bg-rose-50/30 text-rose-900 focus:border-rose-500 focus:ring-rose-200"

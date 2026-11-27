@@ -11,9 +11,10 @@ import {
 import { api, formatMoney } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
+import { Paged } from "../../components/common/Pagination.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
-import { Select } from "../../components/common/Select.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { MoneyInput } from "../../components/common/MoneyInput.js";
 import { TextArea } from "../../components/common/TextArea.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
@@ -197,7 +198,9 @@ export function CommitmentDetailPage() {
         title="Covered Invoices"
         subtitle="Outstanding bills promised to be cleared on this date"
       >
-        <div className="overflow-x-auto">
+        <Paged items={commitment.invoices ?? []}>
+          {(pageInvoices: any[]) => (
+          <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-100 text-slate-500 uppercase font-semibold">
@@ -207,7 +210,7 @@ export function CommitmentDetailPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {commitment.invoices.map((inv: any) => (
+              {pageInvoices.map((inv: any) => (
                 <tr
                   key={inv.id}
                   role="link"
@@ -236,6 +239,8 @@ export function CommitmentDetailPage() {
             </tbody>
           </table>
         </div>
+          )}
+        </Paged>
       </Card>
 
       {commitment.delayReason && (
@@ -252,10 +257,12 @@ export function CommitmentDetailPage() {
         description="Record whether the debtor honored or defaulted on this promise"
       >
         <div className="space-y-4">
-          <Select
+          <CustomSelect
+            required
+            portal
             label="Evaluation Result"
             value={evalStatus}
-            onChange={(e) => setEvalStatus(e.target.value as any)}
+            onChange={(e: any) => setEvalStatus(e.target.value as any)}
             options={[
               { value: "fulfilled", label: "Fulfilled in Full (100% Received)" },
               { value: "partially_fulfilled", label: "Partially Fulfilled (Partial Amount)" },

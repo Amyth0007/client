@@ -87,7 +87,22 @@ export function buildNavGroups(user: NavUser): NavGroup[] {
       ],
     },
   ];
-  return groups.filter((group) => group.items.length > 0);
+  return applyNavOrder(groups.filter((group) => group.items.length > 0), user?.organization?.navOrder);
+}
+
+/**
+ * Sorts sections and their screens by the organization's saved order (section ids and screen paths).
+ * Anything not in the saved list keeps its default position after the ordered entries.
+ */
+export function applyNavOrder(groups: NavGroup[], order: string[] | undefined | null): NavGroup[] {
+  if (!order?.length) return groups;
+  const rank = new Map(order.map((key, index) => [key, index]));
+  const sortBy = <T,>(list: T[], keyOf: (item: T) => string) =>
+    list
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => (rank.get(keyOf(a.item)) ?? order.length + a.index) - (rank.get(keyOf(b.item)) ?? order.length + b.index))
+      .map(({ item }) => item);
+  return sortBy(groups, (group) => group.id).map((group) => ({ ...group, items: sortBy(group.items, (item) => item.path) }));
 }
 
 /** The first menu screen the user is allowed to open, or null when nothing is assigned. */

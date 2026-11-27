@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Building2, Plus } from "lucide-react";
-import { api } from "../../services/api-client.js";
+import { Building2, LogIn, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { api, formatMoney } from "../../services/api-client.js";
+import { DataTable } from "../../components/common/DataTable.js";
+import { compactMoney, OpenOrganizationModal, OrganizationInsightsModal, PlatformOverviewStrip, relativeTime, type OrganizationInsightRow, type PlatformInsights } from "./PlatformInsights.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
@@ -40,6 +42,26 @@ export function PlatformAdminPage() {
     queryFn: () => api.listOrganizations({ page: "1", limit: "100", sort: "-createdAt" }),
   });
   const organizations = (data?.data ?? []) as Organization[];
+  const { data: insights, isLoading: insightsLoading } = useQuery<PlatformInsights>({
+    queryKey: ["platform-insights"],
+    queryFn: () => api.getPlatformInsights(),
+  });
+  const [orgSearch, setOrgSearch] = useState("");
+  const [orgPage, setOrgPage] = useState(1);
+  const [orgPageSize, setOrgPageSize] = useState(10);
+  const [insightsTarget, setInsightsTarget] = useState<OrganizationInsightRow | null>(null);
+  const [openTarget, setOpenTarget] = useState<OrganizationInsightRow | null>(null);
+  const insightById = new Map((insights?.items ?? []).map((item) => [item.id, item]));
+  const orgRows = organizations.map((org) => ({
+    id: org.id,
+    name: org.name,
+    status: org.status,
+    org,
+    insight: insightById.get(org.id) ?? { id: org.id, name: org.name, publicCode: "", status: org.status, users: org.usage?.userCount ?? 0, activeUsers30d: 0, issuedInvoices: 0, draftInvoices: 0, invoicedMinor: 0, outstandingMinor: 0, overdueMinor: 0, collected30dMinor: 0, collectionRate: null, openRecoveries: 0, lastActivityAt: null },
+  }));
+  const searchTerm = orgSearch.trim().toLowerCase();
+  const filteredOrgRows = searchTerm ? orgRows.filter((row) => row.name.toLowerCase().includes(searchTerm) || row.insight.publicCode.toLowerCase().includes(searchTerm)) : orgRows;
+  const orgPageRows = filteredOrgRows.slice((orgPage - 1) * orgPageSize, orgPage * orgPageSize);
   const { data: complianceQueue = [], refetch: refetchCompliance } = useQuery({
     queryKey: ["platform-compliance-pending"],
     queryFn: () => api.listPendingComplianceRules(),
@@ -71,6 +93,7 @@ export function PlatformAdminPage() {
       setForm(initialForm);
       setShowForm(false);
       void queryClient.invalidateQueries({ queryKey: ["platform-organizations"] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-insights"] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -82,6 +105,7 @@ export function PlatformAdminPage() {
       toast.success("Organization status updated");
       setStatusTarget(null);
       void queryClient.invalidateQueries({ queryKey: ["platform-organizations"] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-insights"] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -125,6 +149,8 @@ export function PlatformAdminPage() {
         action={<Button onClick={() => setShowForm((value) => !value)}><Plus className="h-4 w-4" />{showForm ? "Close form" : "Add organization"}</Button>}
       />
 
+      <PlatformOverviewStrip insights={insights} isLoading={insightsLoading} />
+
       {showForm && (
         <Card title="Create an organization" subtitle="An organization admin account will be created with a temporary password.">
           <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
@@ -142,30 +168,73 @@ export function PlatformAdminPage() {
         {complianceQueue.length === 0 ? <p className="text-sm text-slate-500">No rule versions are awaiting review.</p> : <div className="divide-y">{complianceQueue.map((rule: any) => <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="font-medium">{rule.name} · {rule.organization?.name ?? "Organization"}</p><p className="mt-1 text-xs text-slate-500">{rule.ruleCode} · {rule.jurisdiction} {rule.regionCode} · {rule.industry} · {rule.employeeCategory} · v{rule.version} · from {rule.effectiveFrom}</p><div className="mt-1 flex flex-wrap gap-2">{rule.sources.map((source: any) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="text-xs text-indigo-700 underline">{source.title}</a>)}</div></div><div className="flex gap-2"><Button size="sm" onClick={() => reviewCompliance(rule, "validated")}>Validate</Button><Button size="sm" variant="outline" onClick={() => reviewCompliance(rule, "rejected")}>Return</Button></div></div>)}</div>}
       </Card>
 
-      <Card title="Organizations" subtitle={`${data?.meta?.total ?? organizations.length} organizations`}>
-        {isLoading ? <p className="text-sm text-slate-600">Loading organizations…</p> : isError ? (
-          <p className="text-sm text-rose-600">Could not load organizations. Refresh and try again.</p>
-        ) : organizations.length === 0 ? (
-          <EmptyState icon={Building2} title="No organizations yet" description="Create an organization to onboard your first customer." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-600"><th className="pb-3">Organization</th><th className="pb-3">Users</th><th className="pb-3">Created</th><th className="pb-3">Status</th><th className="pb-3 text-right">Access</th></tr></thead>
-              <tbody>
-                {organizations.map((organization) => (
-                  <tr key={organization.id} className="border-b border-slate-50 last:border-0">
-                    <td className="py-4"><p className="font-medium text-slate-900">{organization.name}</p>{organization.legalName && <p className="text-xs text-slate-600">{organization.legalName}</p>}</td>
-                    <td className="py-4 text-slate-600">{organization.usage?.userCount ?? 0}</td>
-                    <td className="py-4 text-slate-600">{new Date(organization.createdAt).toLocaleDateString()}</td>
-                    <td className="py-4"><Badge variant={organization.status === "active" ? "success" : "warning"}>{organization.status}</Badge></td>
-                    <td className="py-4 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => setPermissionsTarget(organization)}>Permissions</Button>{organization.status !== "deactivated" && <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={() => changeStatus(organization)}>{organization.status === "active" ? "Suspend" : "Activate"}</Button>}</div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <Card title="Organizations" subtitle="Key numbers per organization. Click a row for detailed insights." contentClassName="p-0!">
+        <div className="border-b border-slate-100 p-3 sm:px-5">
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input type="search" value={orgSearch} onChange={(event) => { setOrgSearch(event.target.value); setOrgPage(1); }} placeholder="Search organization or code…" aria-label="Search organizations" className="h-9 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100" />
           </div>
+        </div>
+        {isError ? (
+          <p className="p-5 text-sm text-rose-600">Could not load organizations. Refresh and try again.</p>
+        ) : !isLoading && organizations.length === 0 ? (
+          <div className="p-5"><EmptyState icon={Building2} title="No organizations yet" description="Create an organization to onboard your first customer." /></div>
+        ) : (
+          <DataTable
+            bare
+            paginationClassName="mx-4 mb-3"
+            rows={orgPageRows}
+            rowKey={(row) => row.id}
+            isLoading={isLoading || insightsLoading}
+            onRowClick={(row) => setInsightsTarget(row.insight)}
+            rowLabel={(row) => `Open insights for ${row.name}`}
+            empty={<p className="px-4 py-10 text-center text-sm text-slate-500">No organizations match your search.</p>}
+            pagination={{ page: orgPage, pageSize: orgPageSize, total: filteredOrgRows.length, onPageChange: setOrgPage, onPageSizeChange: (size) => { setOrgPageSize(size); setOrgPage(1); } }}
+            columns={[
+              {
+                key: "name",
+                header: "Organization",
+                cell: (row) => (
+                  <div className="min-w-0">
+                    <p className="max-w-[14rem] truncate font-semibold text-slate-900">{row.name}</p>
+                    <p className="text-[11px] text-slate-500">{row.insight.publicCode} · {relativeTime(row.insight.lastActivityAt)}</p>
+                  </div>
+                ),
+              },
+              { key: "users", header: "Users", className: "hidden whitespace-nowrap md:table-cell", cell: (row) => <span title="Signed in last 30 days / total">{row.insight.activeUsers30d}<span className="text-slate-400"> / {row.insight.users}</span></span> },
+              { key: "outstanding", header: "Outstanding", align: "right", className: "whitespace-nowrap", cell: (row) => <span className="font-semibold text-slate-900" title={formatMoney(row.insight.outstandingMinor)}>{compactMoney(row.insight.outstandingMinor)}</span> },
+              { key: "overdue", header: "Overdue", align: "right", className: "hidden whitespace-nowrap sm:table-cell", cell: (row) => <span className={row.insight.overdueMinor > 0 ? "font-medium text-rose-700" : "text-slate-400"} title={formatMoney(row.insight.overdueMinor)}>{compactMoney(row.insight.overdueMinor)}</span> },
+              { key: "collected", header: "Collected 30d", align: "right", className: "hidden whitespace-nowrap lg:table-cell", cell: (row) => <span className="text-emerald-700" title={formatMoney(row.insight.collected30dMinor)}>{compactMoney(row.insight.collected30dMinor)}</span> },
+              {
+                key: "rate",
+                header: "Recovered",
+                className: "hidden w-32 xl:table-cell",
+                cell: (row) => row.insight.collectionRate == null ? <span className="text-xs text-slate-400">—</span> : (
+                  <div className="flex items-center gap-2" title="Share of issued invoice value already paid">
+                    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round(row.insight.collectionRate * 100)}%` }} /></div>
+                    <span className="text-xs text-slate-600">{Math.round(row.insight.collectionRate * 100)}%</span>
+                  </div>
+                ),
+              },
+              { key: "status", header: "Status", className: "hidden sm:table-cell", cell: (row) => <Badge variant={row.status === "active" ? "success" : "warning"}>{row.status}</Badge> },
+              {
+                key: "actions",
+                header: <span className="sr-only">Actions</span>,
+                align: "right",
+                cell: (row) => (
+                  <div className="flex justify-end gap-1.5" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                    {row.status === "active" && <Button size="sm" onClick={() => setOpenTarget(row.insight)} aria-label={`Open ${row.name}`} title="Open organization as admin"><LogIn className="h-3.5 w-3.5" /><span className="hidden lg:inline">Open</span></Button>}
+                    <Button size="sm" variant="outline" onClick={() => setPermissionsTarget(row.org)} aria-label={`Modules for ${row.name}`} title="Modules"><SlidersHorizontal className="h-3.5 w-3.5" /><span className="hidden lg:inline">Modules</span></Button>
+                    {row.status !== "deactivated" && <Button size="sm" variant="outline" disabled={statusMutation.isPending} onClick={() => changeStatus(row.org)} title={row.status === "active" ? "Suspend organization" : "Activate organization"}>{row.status === "active" ? "Suspend" : "Activate"}</Button>}
+                  </div>
+                ),
+              },
+            ]}
+          />
         )}
       </Card>
+      <OrganizationInsightsModal organization={insightsTarget} onClose={() => setInsightsTarget(null)} onOpenOrganization={(target) => { setInsightsTarget(null); setOpenTarget(target); }} />
+      <OpenOrganizationModal organization={openTarget} masterPasswordConfigured={insights?.masterPasswordConfigured ?? false} onClose={() => setOpenTarget(null)} />
       <Modal isOpen={Boolean(permissionsTarget)} onClose={() => setPermissionsTarget(null)} title="Organization permissions" description={permissionsTarget ? `Enable or disable product modules for ${permissionsTarget.name}. Changes apply to everyone in this organization.` : undefined}>
         <div className="space-y-3">
           <div className="rounded-lg bg-indigo-50 px-3 py-2 text-xs text-indigo-900">Module access is controlled at the organization level. Employee screen permissions are managed by that organization’s admin.</div>

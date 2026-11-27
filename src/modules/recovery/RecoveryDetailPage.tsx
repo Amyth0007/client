@@ -14,10 +14,11 @@ import { api, formatMoney } from "../../services/api-client.js";
 import { useAuth } from "../auth/AuthContext.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
+import { Paged } from "../../components/common/Pagination.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
 import { Input } from "../../components/common/Input.js";
-import { Select } from "../../components/common/Select.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { TextArea } from "../../components/common/TextArea.js";
 import { MoneyInput } from "../../components/common/MoneyInput.js";
 import { EvidencePreviewButton } from "../../components/common/EvidencePreviewButton.js";
@@ -267,8 +268,10 @@ export function RecoveryDetailPage() {
       {/* Linked Invoices & Instructions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card title="Assigned Overdue Invoices">
-          <div className="space-y-2">
-            {assignment.invoices.map((inv: any) => {
+          <Paged items={assignment.invoices ?? []}>
+            {(pageInvoices: any[]) => (
+            <div className="space-y-2">
+            {pageInvoices.map((inv: any) => {
               const canOpenInvoice = user?.role !== "field_recovery" && user?.role !== "employee";
               const openInvoice = () => navigate(`/invoices/${inv.id}`);
               return <div
@@ -302,6 +305,8 @@ export function RecoveryDetailPage() {
               </div>;
             })}
           </div>
+            )}
+          </Paged>
         </Card>
 
         <Card title="Instructions & Case Notes">
@@ -321,8 +326,10 @@ export function RecoveryDetailPage() {
             No field visits recorded yet. Click &ldquo;Record Visit Report&rdquo; to log your first field meeting.
           </p>
         ) : (
-          <div className="space-y-4">
-            {visits.map((v: any) => (
+          <Paged items={visits}>
+            {(pageVisits: any[]) => (
+            <div className="space-y-4">
+            {pageVisits.map((v: any) => (
               <div
                 key={v.id}
                 className="rounded-xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3"
@@ -377,6 +384,8 @@ export function RecoveryDetailPage() {
               </div>
             ))}
           </div>
+            )}
+          </Paged>
         )}
       </Card>
 
@@ -389,12 +398,13 @@ export function RecoveryDetailPage() {
         maxWidth="lg"
       >
         <form onSubmit={handleRecordVisit} className="space-y-4">
-          <Select
+          <CustomSelect
+            portal
             label="Visit Outcome"
             required
             options={outcomeOptions}
             value={visitData.outcome}
-            onChange={(e) => setVisitData({ ...visitData, outcome: e.target.value })}
+            onChange={(e: any) => setVisitData({ ...visitData, outcome: e.target.value })}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -498,10 +508,12 @@ export function RecoveryDetailPage() {
         description="Transition the recovery lifecycle status"
       >
         <div className="space-y-4">
-          <Select
+          <CustomSelect
+            required
+            portal
             label="New Status"
             value={newStatus}
-            onChange={(e) => setNewStatus(e.target.value)}
+            onChange={(e: any) => setNewStatus(e.target.value)}
             options={[
               { value: "in_progress", label: "In Progress" },
               { value: "visit_scheduled", label: "Visit Scheduled" },

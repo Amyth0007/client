@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus, Handshake } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Badge } from "../../components/common/Badge.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
+import { DataTable } from "../../components/common/DataTable.js";
 import { EmptyState } from "../../components/common/EmptyState.js";
 import { QueryError } from "../../components/common/QueryError.js";
 import { FilterButton, FilterDialog } from "../../components/common/FilterDialog.js";
@@ -17,22 +19,27 @@ export function CommitmentListPage() {
   const [toDate, setToDate] = useState(() => searchParams.get("toDate") || "");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const navigate = useNavigate();
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["commitments", { status, fromDate, toDate, page }],
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    placeholderData: keepPreviousData,
+    queryKey: ["commitments", { status, fromDate, toDate, page, pageSize }],
     queryFn: () =>
       api.listCommitments({
         status: (status as any) || undefined,
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         page,
-        limit: 15,
+        limit: pageSize,
       }),
   });
 
   const commitments = data?.data ?? [];
   const meta = data?.meta;
   const todayStr = new Date().toISOString().slice(0, 10);
+  const hasFilters = Boolean(status || fromDate || toDate);
+  const statusVariant = (value: string) => value === "fulfilled" ? "success" : value === "missed" ? "danger" : value === "partially_fulfilled" ? "warning" : value === "cancelled" ? "neutral" : "info";
 
   return (
     <div className="space-y-6">
@@ -48,36 +55,15 @@ export function CommitmentListPage() {
       />
       <FilterDialog isOpen={filterOpen} onClose={() => setFilterOpen(false)} onClear={() => { setStatus(""); setFromDate(""); setToDate(""); setPage(1); }}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="text-xs text-slate-600">Commitment status<select
-            value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(1);
-            }}
-            className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">All Statuses</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="fulfilled">Fulfilled</option>
-            <option value="partially_fulfilled">Partially Fulfilled</option>
-            <option value="missed">Missed (Defaulted)</option>
-            <option value="cancelled">Cancelled</option>
-          </select></label>
+          <CustomSelect label="Commitment status" className="sm:col-span-2" portal value={status} placeholder="All statuses" onChange={(e: any) => { setStatus(e.target.value); setPage(1); }} options={[{ value: "upcoming", label: "Upcoming" }, { value: "fulfilled", label: "Fulfilled" }, { value: "partially_fulfilled", label: "Partially fulfilled" }, { value: "missed", label: "Missed (defaulted)" }, { value: "cancelled", label: "Cancelled" }]} />
           <label className="text-xs text-slate-600">Promise date from<input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           <label className="text-xs text-slate-600">Promise date to<input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => { setToDate(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         </div>
       </FilterDialog>
 
-      {/* List */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 bg-white rounded-xl border border-slate-200 animate-pulse" />
-          ))}
-        </div>
-      ) : isError ? (
+      {isError ? (
         <QueryError message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
-      ) : commitments.length === 0 ? (
+      ) : !isLoading && commitments.length === 0 && !hasFilters ? (
         <EmptyState
           icon={Handshake}
           title="No commitments found"
@@ -89,84 +75,58 @@ export function CommitmentListPage() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          {commitments.map((c: any) => {
-            const isDueSoon = c.status === "upcoming" && c.promisedDate >= todayStr;
-            const isLate = c.status === "upcoming" && c.promisedDate < todayStr;
-
-            return (
-              <Link
-                key={c.id}
-                to={`/commitments/${c.id}`}
-                className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
-              >
+        <DataTable
+          rows={commitments}
+          rowKey={(c: any) => c.id}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          onRowClick={(c: any) => navigate(`/commitments/${c.id}`)}
+          rowLabel={(c: any) => `Open commitment from ${c.customer?.displayName || "customer"}`}
+          empty={<p className="px-4 py-10 text-center text-sm text-slate-500">No commitments match your filters.</p>}
+          pagination={{
+            page,
+            pageSize,
+            total: meta?.total ?? 0,
+            onPageChange: setPage,
+            onPageSizeChange: (size) => { setPageSize(size); setPage(1); },
+          }}
+          columns={[
+            {
+              key: "customer",
+              header: "Customer",
+              cell: (c: any) => (
                 <div className="min-w-0">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="min-w-0 break-words text-sm font-bold text-slate-950">
-                        {c.customer?.displayName || "Customer"}
-                      </span>
-                      <Badge
-                        variant={
-                          c.status === "fulfilled"
-                            ? "success"
-                            : c.status === "missed"
-                            ? "danger"
-                            : c.status === "partially_fulfilled"
-                            ? "warning"
-                            : "info"
-                        }
-                      >
-                        {c.status.replace("_", " ")}
-                      </Badge>
-                      {isLate && <Badge variant="overdue">Promise Expired</Badge>}
-                    </div>
-
-                    <p className="text-xs text-slate-600 mt-1">
-                      Promised by:{" "}
-                      <span className="font-semibold text-slate-700">
-                        {c.responsiblePerson}
-                      </span>
-                    </p>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
-                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Promise date</p><p className={`mt-1 break-words text-sm font-semibold ${isLate ? "text-rose-700" : isDueSoon ? "text-indigo-700" : "text-slate-900"}`}>{c.promisedDate}</p></div>
-                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Promised amount</p><p className="mt-1 break-words text-sm font-bold text-indigo-800">{formatMoney(c.promisedAmountMinor)}</p></div>
-                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoices</p><p className="mt-1 text-sm font-semibold text-slate-900">{c.invoices?.length ?? 0}</p></div>
-                      <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Fulfilled</p><p className="mt-1 break-words text-sm font-semibold text-emerald-800">{formatMoney(c.fulfilledAmountMinor)}</p></div>
-                      {c.delayReason && <div className="min-w-0 sm:col-span-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Delay reason</p><p className="mt-1 break-words text-sm font-medium text-slate-800">{c.delayReason}</p></div>}
-                    </div>
+                  <p className="max-w-[13rem] truncate font-semibold text-slate-900">{c.customer?.displayName || "Customer"}</p>
+                  <p className="mt-0.5 max-w-[13rem] truncate text-[11px] text-slate-500">By {c.responsiblePerson || "—"}</p>
+                  <div className="mt-1 flex flex-wrap gap-1 sm:hidden">
+                    <Badge variant={statusVariant(c.status)} className="px-1.5! py-0! text-[10px]!">{c.status.replace(/_/g, " ")}</Badge>
+                    {c.status === "upcoming" && c.promisedDate < todayStr && <Badge variant="overdue" className="px-1.5! py-0! text-[10px]!">Expired</Badge>}
+                  </div>
                 </div>
-              </Link>
-            );
-          })}
-
-          {/* Pagination */}
-          {meta && meta.total > meta.limit && (
-            <div className="flex items-center justify-between pt-4">
-              <span className="text-xs text-slate-600">
-                Page {meta.page} of {Math.ceil(meta.total / meta.limit)} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= Math.ceil(meta.total / meta.limit)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+              ),
+            },
+            {
+              key: "date",
+              header: "Promise date",
+              className: "whitespace-nowrap",
+              cell: (c: any) => <span className={c.status === "upcoming" && c.promisedDate < todayStr ? "font-semibold text-rose-700" : c.status === "upcoming" ? "font-medium text-indigo-700" : ""}>{c.promisedDate}</span>,
+            },
+            {
+              key: "status",
+              header: "Status",
+              className: "hidden sm:table-cell",
+              cell: (c: any) => (
+                <div className="flex flex-wrap gap-1">
+                  <Badge variant={statusVariant(c.status)}>{c.status.replace(/_/g, " ")}</Badge>
+                  {c.status === "upcoming" && c.promisedDate < todayStr && <Badge variant="overdue">Expired</Badge>}
+                </div>
+              ),
+            },
+            { key: "invoices", header: "Invoices", align: "center", className: "hidden lg:table-cell", cell: (c: any) => c.invoices?.length ?? 0 },
+            { key: "fulfilled", header: "Fulfilled", align: "right", className: "hidden whitespace-nowrap md:table-cell", cell: (c: any) => <span className="text-emerald-700">{formatMoney(c.fulfilledAmountMinor)}</span> },
+            { key: "promised", header: "Promised", align: "right", className: "whitespace-nowrap", cell: (c: any) => <span className="font-semibold text-slate-900">{formatMoney(c.promisedAmountMinor)}</span> },
+          ]}
+        />
       )}
     </div>
   );

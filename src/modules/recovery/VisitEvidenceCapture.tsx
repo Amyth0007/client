@@ -3,6 +3,7 @@ import { Camera, CheckCircle2, ImagePlus, RotateCcw, SwitchCamera } from "lucide
 import { toast } from "react-hot-toast";
 import { api } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
+import { IMAGE_ACCEPT, MAX_UPLOAD_BYTES, isImageFile, prepareImageForUpload } from "../../utils/image-upload.js";
 
 export function VisitEvidenceCapture({ fileAssetId, onUploaded }: { fileAssetId: string | null; onUploaded: (id: string) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -39,10 +40,12 @@ export function VisitEvidenceCapture({ fileAssetId, onUploaded }: { fileAssetId:
   };
 
   const upload = async (file: File) => {
-    if (!file.type.startsWith("image/")) { toast.error("Choose an image file. PDFs are not accepted."); return; }
+    if (!isImageFile(file)) { toast.error("Choose a photo or image file. PDFs are not accepted."); return; }
     setBusy(true);
     try {
-      const asset = await api.uploadFile(file, "visit_evidence");
+      const prepared = await prepareImageForUpload(file);
+      if (prepared.size > MAX_UPLOAD_BYTES) throw new Error("This photo is larger than 10 MB. Please choose a smaller image.");
+      const asset = await api.uploadFile(prepared, "visit_evidence");
       onUploaded(asset.id);
       setFileName(file.name);
       stopCamera();
@@ -70,7 +73,7 @@ export function VisitEvidenceCapture({ fileAssetId, onUploaded }: { fileAssetId:
       <video ref={videoRef} autoPlay playsInline className="max-h-72 w-full rounded-lg object-contain" />
       <div className="flex flex-wrap gap-2"><Button type="button" size="sm" isLoading={busy} onClick={() => capture()}><Camera className="h-4 w-4"/>Capture photo</Button><Button type="button" size="sm" variant="outline" onClick={() => startCamera(facing === "environment" ? "user" : "environment")}><SwitchCamera className="h-4 w-4"/>Switch camera</Button><Button type="button" size="sm" variant="outline" onClick={stopCamera}><RotateCcw className="h-4 w-4"/>Close camera</Button></div>
     </div>}
-    <input ref={pickerRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = ""; }} />
+    <input ref={pickerRef} type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.currentTarget.value = ""; }} />
     <div className="flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" isLoading={busy} onClick={() => startCamera()}><Camera className="h-4 w-4"/>Open camera</Button><Button type="button" size="sm" variant="outline" isLoading={busy} onClick={() => pickerRef.current?.click()}><ImagePlus className="h-4 w-4"/>Choose from device</Button></div>
     {fileAssetId && <p className="flex items-center gap-1 text-xs font-medium text-emerald-700"><CheckCircle2 className="h-4 w-4"/>{fileName || "Visit image uploaded"}</p>}
     {!fileAssetId && <p className="text-xs text-rose-600">Upload or capture a visit photo before submitting.</p>}

@@ -15,6 +15,7 @@ import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
 import { ORGANIZATION_MODULES, organizationModuleEnabled, type OrganizationModuleKey } from "../platform/module-registry.js";
 import { ACTION_PERMISSIONS } from "../platform/action-permission-registry.js";
+import { MenuOrderSettings } from "./MenuOrderSettings.js";
 
 export function SettingsPage() {
   const { user, refreshProfile } = useAuth();
@@ -311,8 +312,10 @@ export function SettingsPage() {
 
       <Tabs ariaLabel="Settings sections" activeTab={settingsTab} onChange={setSettingsTab} tabs={[
         { id: "organization", label: "Organization" },
-        ...(isOrgAdmin ? [{ id: "team", label: "Team & access" }, { id: "roles", label: "Subadmin roles" }] : []),
+        ...(isOrgAdmin ? [{ id: "team", label: "Team & access" }, { id: "roles", label: "Subadmin roles" }, { id: "menu", label: "Menu order" }] : []),
       ]} />
+
+      {settingsTab === "menu" && isOrgAdmin && <MenuOrderSettings />}
 
       {settingsTab === "team" && isOrgAdmin && <Card title="Workspace guide display" subtitle="Control workflow guides across all workspace screens for your organization.">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

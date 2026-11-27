@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Plus, Search, FileText, Clock3, CircleDollarSign } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
+import { DataTable } from "../../components/common/DataTable.js";
 import { Badge } from "../../components/common/Badge.js";
 import { EmptyState } from "../../components/common/EmptyState.js";
 import { QueryError } from "../../components/common/QueryError.js";
-import { StatCard } from "../../components/common/StatCard.js";
 import { FilterButton, FilterDialog } from "../../components/common/FilterDialog.js";
 
 export function InvoiceListPage() {
@@ -27,9 +28,12 @@ export function InvoiceListPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [sort, setSort] = useState("-createdAt");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const navigate = useNavigate();
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["invoices", { search, status, acknowledgementStatus, paymentStatus, customerId, overdueOnly, dueTodayOnly, outstandingOnly, sort, dateFrom, dateTo, page }],
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    placeholderData: keepPreviousData,
+    queryKey: ["invoices", { search, status, acknowledgementStatus, paymentStatus, customerId, overdueOnly, dueTodayOnly, outstandingOnly, sort, dateFrom, dateTo, page, pageSize }],
     queryFn: () =>
       api.listInvoices({
         search: search || undefined,
@@ -44,7 +48,7 @@ export function InvoiceListPage() {
         outstandingOnly: outstandingOnly ? "true" : undefined,
         sort,
         page,
-        limit: 15,
+        limit: pageSize,
       }),
   });
 
@@ -70,14 +74,43 @@ export function InvoiceListPage() {
       const [all, drafts, open, overdue] = await Promise.all([
         api.listInvoices({ page: "1", limit: "1" }),
         api.listInvoices({ page: "1", limit: "1", documentStatus: "draft" }),
-        api.listInvoices({ page: "1", limit: "1", documentStatus: "issued" }),
+        api.listInvoices({ page: "1", limit: "1", outstandingOnly: "true" }),
         api.listInvoices({ page: "1", limit: "1", overdueOnly: "true" }),
       ]);
       return { all: all.meta?.total ?? 0, drafts: drafts.meta?.total ?? 0, open: open.meta?.total ?? 0, overdue: overdue.meta?.total ?? 0 };
     },
   });
 
+  const quickFilters = [
+    { id: "all", label: "All", count: overview?.all, icon: FileText, iconClass: "text-slate-500", countClass: "bg-slate-100 text-slate-700" },
+    { id: "draft", label: "Drafts", count: overview?.drafts, icon: FileText, iconClass: "text-amber-500", countClass: "bg-amber-50 text-amber-700" },
+    { id: "open", label: "Open balances", count: overview?.open, icon: CircleDollarSign, iconClass: "text-emerald-600", countClass: "bg-emerald-50 text-emerald-700" },
+    { id: "overdue", label: "Overdue", count: overview?.overdue, icon: Clock3, iconClass: "text-rose-500", countClass: "bg-rose-50 text-rose-700" },
+  ] as const;
+  const onlyStatusFilters = !search && !acknowledgementStatus && !paymentStatus && !customerId && !dueTodayOnly && !dateFrom && !dateTo;
+  const activeQuickFilter = !onlyStatusFilters ? null
+    : overdueOnly && !status && !outstandingOnly ? "overdue"
+    : outstandingOnly && !status && !overdueOnly ? "open"
+    : status === "draft" && !overdueOnly && !outstandingOnly ? "draft"
+    : !status && !overdueOnly && !outstandingOnly ? "all"
+    : null;
+  const applyQuickFilter = (id: string) => {
+    setStatus(id === "draft" ? "draft" : "");
+    setOverdueOnly(id === "overdue");
+    setOutstandingOnly(id === "open");
+    setDueTodayOnly(false);
+    setPaymentStatus("");
+    setAcknowledgementStatus("");
+    setCustomerId("");
+    setDateFrom("");
+    setDateTo("");
+    setSearch("");
+    setPage(1);
+  };
+
   const todayStr = new Date().toISOString().slice(0, 10);
+  const isInvoiceOverdue = (inv: any) => inv.documentStatus === "issued" && inv.outstandingMinor > 0 && inv.dueDate < todayStr;
+  const hasFilters = Boolean(search || status || acknowledgementStatus || paymentStatus || customerId || overdueOnly || dueTodayOnly || outstandingOnly || dateFrom || dateTo);
 
   return (
     <div className="space-y-6">
@@ -94,11 +127,24 @@ export function InvoiceListPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard title="All invoices" value={overview?.all ?? "—"} subtitle="Across every status" icon={FileText} variant="neutral" />
-        <StatCard title="Drafts" value={overview?.drafts ?? "—"} subtitle="Ready to review and issue" icon={FileText} />
-        <StatCard title="Open balances" value={overview?.open ?? "—"} subtitle="Issued invoices" icon={CircleDollarSign} variant="success" />
-        <StatCard title="Overdue" value={overview?.overdue ?? "—"} subtitle="Needs follow-up" icon={Clock3} variant="danger" />
+      {/* Compact quick filters with counts */}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5 no-scrollbar">
+        {quickFilters.map((chip) => {
+          const Icon = chip.icon;
+          return (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={() => applyQuickFilter(chip.id)}
+              aria-pressed={activeQuickFilter === chip.id}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${activeQuickFilter === chip.id ? "border-indigo-600 bg-indigo-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"}`}
+            >
+              <Icon className={`h-3.5 w-3.5 ${activeQuickFilter === chip.id ? "text-white" : chip.iconClass}`} />
+              <span>{chip.label}</span>
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${activeQuickFilter === chip.id ? "bg-white/20 text-white" : chip.countClass}`}>{chip.count ?? "—"}</span>
+            </button>
+          );
+        })}
       </div>
 
       <Card contentClassName="p-2!">
@@ -124,27 +170,21 @@ export function InvoiceListPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="text-xs text-slate-600">Invoice date from<input type="date" value={dateFrom} max={dateTo || undefined} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           <label className="text-xs text-slate-600">Invoice date to<input type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
-          <label className="text-xs text-slate-600">Customer<select value={customerId} onChange={(e) => { setCustomerId(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">All customers</option>{customerOptions?.map((customer: any) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select></label>
-          <label className="text-xs text-slate-600">Invoice status<select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">All statuses</option><option value="draft">Draft</option><option value="issued">Issued</option><option value="cancelled">Cancelled</option></select></label>
-          <label className="text-xs text-slate-600">Payment status<select value={paymentStatus} onChange={(e) => { setPaymentStatus(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">All payment states</option><option value="unpaid">Unpaid</option><option value="partial">Partially paid</option><option value="paid">Paid</option></select></label>
-          <label className="text-xs text-slate-600">Customer response<select value={acknowledgementStatus} onChange={(e) => { setAcknowledgementStatus(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">All responses</option><option value="not_shared">Not shared</option><option value="shared">Awaiting response</option><option value="acknowledged">Acknowledged</option><option value="rejected">Rejected</option><option value="disputed">Disputed</option></select></label>
-          <label className="text-xs text-slate-600 sm:col-span-2">Sort by<select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"><option value="-createdAt">Recently added</option><option value="dueDate">Due date (earliest)</option><option value="-dueDate">Due date (latest)</option><option value="-amountMinor">Largest balance</option><option value="invoiceDate">Oldest invoice</option></select></label>
+          <CustomSelect label="Customer" portal searchable value={customerId} placeholder="All customers" onChange={(e: any) => { setCustomerId(e.target.value); setPage(1); }} options={(customerOptions ?? []).map((customer: any) => ({ value: customer.id, label: customer.displayName }))} />
+          <CustomSelect label="Invoice status" portal value={status} placeholder="All statuses" onChange={(e: any) => { setStatus(e.target.value); setPage(1); }} options={[{ value: "draft", label: "Draft" }, { value: "issued", label: "Issued" }, { value: "cancelled", label: "Cancelled" }]} />
+          <CustomSelect label="Payment status" portal value={paymentStatus} placeholder="All payment states" onChange={(e: any) => { setPaymentStatus(e.target.value); setPage(1); }} options={[{ value: "unpaid", label: "Unpaid" }, { value: "partial", label: "Partially paid" }, { value: "paid", label: "Paid" }]} />
+          <CustomSelect label="Customer response" portal value={acknowledgementStatus} placeholder="All responses" onChange={(e: any) => { setAcknowledgementStatus(e.target.value); setPage(1); }} options={[{ value: "not_shared", label: "Not shared" }, { value: "shared", label: "Awaiting response" }, { value: "acknowledged", label: "Acknowledged" }, { value: "rejected", label: "Rejected" }, { value: "disputed", label: "Disputed" }]} />
+          <CustomSelect label="Sort by" className="sm:col-span-2" portal required value={sort} onChange={(e: any) => { setSort(e.target.value); setPage(1); }} options={[{ value: "-createdAt", label: "Recently added" }, { value: "dueDate", label: "Due date (earliest)" }, { value: "-dueDate", label: "Due date (latest)" }, { value: "-amountMinor", label: "Largest balance" }, { value: "invoiceDate", label: "Oldest invoice" }]} />
           <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2"><input type="checkbox" checked={overdueOnly} onChange={(e) => { setOverdueOnly(e.target.checked); setPage(1); }} />Show overdue invoices only</label>
           <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2"><input type="checkbox" checked={dueTodayOnly} onChange={(e) => { setDueTodayOnly(e.target.checked); setPage(1); }} />Due today only</label>
           <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2"><input type="checkbox" checked={outstandingOnly} onChange={(e) => { setOutstandingOnly(e.target.checked); setPage(1); }} />Open balances only</label>
         </div>
       </FilterDialog>
 
-      {/* Invoice List */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 bg-white rounded-xl border border-slate-200 animate-pulse" />
-          ))}
-        </div>
-      ) : isError ? (
+      {/* Invoice table */}
+      {isError ? (
         <QueryError message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
-      ) : invoices.length === 0 ? (
+      ) : !isLoading && invoices.length === 0 && !hasFilters ? (
         <EmptyState
           icon={FileText}
           title="No invoices found"
@@ -156,89 +196,84 @@ export function InvoiceListPage() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          {invoices.map((inv: any) => {
-            const isOverdue =
-              inv.documentStatus === "issued" &&
-              inv.outstandingMinor > 0 &&
-              inv.dueDate < todayStr;
-
-            return (
-              <Link
-                key={inv.id}
-                to={`/invoices/${inv.id}`}
-                className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
-              >
+        <DataTable
+          rows={invoices}
+          rowKey={(inv: any) => inv.id}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          onRowClick={(inv: any) => navigate(`/invoices/${inv.id}`)}
+          rowLabel={(inv: any) => `Open invoice ${inv.invoiceNumber}`}
+          empty={<p className="px-4 py-10 text-center text-sm text-slate-500">No invoices match your search or filters.</p>}
+          pagination={{
+            page,
+            pageSize,
+            total: meta?.total ?? 0,
+            onPageChange: setPage,
+            onPageSizeChange: (size) => { setPageSize(size); setPage(1); },
+          }}
+          columns={[
+            {
+              key: "invoice",
+              header: "Invoice",
+              cell: (inv: any) => (
                 <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="min-w-0 break-words text-sm font-bold text-slate-950">
-                        {inv.invoiceNumber}
-                      </span>
-                      <Badge variant={inv.documentStatus}>{inv.documentStatus}</Badge>
-                      {isOverdue && <Badge variant="overdue">Overdue</Badge>}
-                      {inv.acknowledgementStatus !== "not_shared" && (
-                        <Badge variant="info">
-                          {inv.acknowledgementStatus.replace("_", " ")}
-                        </Badge>
-                      )}
-                  </div>
-
-                    <p className="mt-2 break-words text-sm font-semibold text-slate-800">
-                      {inv.customer?.displayName || "Unknown Customer"}
-                    </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice date</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{inv.invoiceDate}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Due date</p>
-                      <p className={`mt-1 break-words text-sm font-semibold ${isOverdue ? "text-rose-700" : "text-slate-900"}`}>{inv.dueDate}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoice total</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{formatMoney(inv.amountMinor)}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Balance due</p>
-                      <p className={`mt-1 break-words text-sm font-bold ${inv.outstandingMinor > 0 ? "text-slate-950" : "text-emerald-700"}`}>
-                        {inv.outstandingMinor === 0 ? "Paid" : formatMoney(inv.outstandingMinor)}
-                      </p>
-                      {inv.outstandingMinor > 0 && inv.outstandingMinor < inv.amountMinor && <p className="mt-0.5 text-[11px] font-semibold text-amber-700">Partially paid</p>}
-                    </div>
+                  <p className="font-semibold text-slate-900">{inv.invoiceNumber}</p>
+                  <p className="mt-0.5 max-w-[11rem] truncate text-[11px] text-slate-500 sm:hidden">{inv.customer?.displayName || "Unknown customer"}</p>
+                  <div className="mt-1 flex flex-wrap gap-1 sm:hidden">
+                    <Badge variant={inv.documentStatus} className="px-1.5! py-0! text-[10px]!">{inv.documentStatus}</Badge>
+                    {isInvoiceOverdue(inv) && <Badge variant="overdue" className="px-1.5! py-0! text-[10px]!">Overdue</Badge>}
                   </div>
                 </div>
-              </Link>
-            );
-          })}
-
-          {/* Pagination */}
-          {meta && meta.total > meta.limit && (
-            <div className="flex items-center justify-between pt-4">
-              <span className="text-xs text-slate-600">
-                Page {meta.page} of {Math.ceil(meta.total / meta.limit)} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= Math.ceil(meta.total / meta.limit)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+              ),
+            },
+            {
+              key: "customer",
+              header: "Customer",
+              className: "hidden sm:table-cell",
+              cell: (inv: any) => <span className="block max-w-[14rem] truncate font-medium text-slate-800">{inv.customer?.displayName || "Unknown customer"}</span>,
+            },
+            {
+              key: "invoiceDate",
+              header: "Invoice date",
+              className: "hidden whitespace-nowrap lg:table-cell",
+              cell: (inv: any) => inv.invoiceDate,
+            },
+            {
+              key: "dueDate",
+              header: "Due date",
+              className: "whitespace-nowrap",
+              cell: (inv: any) => <span className={isInvoiceOverdue(inv) ? "font-semibold text-rose-700" : ""}>{inv.dueDate}</span>,
+            },
+            {
+              key: "amount",
+              header: "Total",
+              align: "right",
+              className: "hidden whitespace-nowrap md:table-cell",
+              cell: (inv: any) => formatMoney(inv.amountMinor),
+            },
+            {
+              key: "balance",
+              header: "Balance",
+              align: "right",
+              className: "whitespace-nowrap",
+              cell: (inv: any) => inv.outstandingMinor === 0
+                ? <span className="font-semibold text-emerald-700">Paid</span>
+                : <div><p className="font-semibold text-slate-900">{formatMoney(inv.outstandingMinor)}</p>{inv.outstandingMinor < inv.amountMinor && <p className="text-[10px] font-semibold text-amber-700">Partially paid</p>}</div>,
+            },
+            {
+              key: "status",
+              header: "Status",
+              className: "hidden sm:table-cell",
+              cell: (inv: any) => (
+                <div className="flex flex-wrap gap-1">
+                  <Badge variant={inv.documentStatus}>{inv.documentStatus}</Badge>
+                  {isInvoiceOverdue(inv) && <Badge variant="overdue">Overdue</Badge>}
+                  {inv.acknowledgementStatus && inv.acknowledgementStatus !== "not_shared" && <Badge variant="info" className="hidden xl:inline-flex">{inv.acknowledgementStatus.replace(/_/g, " ")}</Badge>}
+                </div>
+              ),
+            },
+          ]}
+        />
       )}
     </div>
   );

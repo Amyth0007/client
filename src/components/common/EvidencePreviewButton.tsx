@@ -4,7 +4,7 @@ import { api } from "../../services/api-client.js";
 import { Button } from "./Button.js";
 import { Modal } from "./Modal.js";
 
-export function EvidencePreviewButton({ fileId, label = "View evidence" }: { fileId: string; label?: string }) {
+export function EvidencePreviewButton({ fileId, label = "View evidence", buttonLabel, compact = false }: { fileId: string; label?: string; buttonLabel?: string; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState("");
   const [mimeType, setMimeType] = useState("");
@@ -33,7 +33,7 @@ export function EvidencePreviewButton({ fileId, label = "View evidence" }: { fil
   }, [fileId, open, attempt]);
 
   return <>
-    <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}><Eye className="h-4 w-4" /><span>{label}</span></Button>
+    <Button type="button" size="sm" variant="outline" aria-label={label} title={label} onClick={() => setOpen(true)}><Eye className="h-4 w-4" /><span className={compact ? "hidden sm:inline" : undefined}>{buttonLabel ?? label}</span></Button>
     <Modal isOpen={open} onClose={() => setOpen(false)} title={label} description="Secure file preview" maxWidth="xl">
       {error ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-rose-50 p-4 text-sm text-rose-800"><span>{error}</span><Button type="button" size="sm" variant="outline" onClick={() => setAttempt((value) => value + 1)}><RefreshCw className="h-4 w-4" />Retry</Button></div>
         : !source ? <div className="flex min-h-40 items-center justify-center text-sm font-medium text-slate-600">Loading evidence…</div>

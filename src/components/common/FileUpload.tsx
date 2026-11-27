@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { UploadCloud, CheckCircle2, AlertCircle } from "lucide-react";
 import { api } from "../../services/api-client.js";
+import { IMAGE_ACCEPT, MAX_UPLOAD_BYTES, isImageFile, prepareImageForUpload } from "../../utils/image-upload.js";
 
 type FileUploadProps = {
   purpose:
@@ -18,7 +19,7 @@ export function FileUpload({
   purpose,
   label = "Upload image (up to 10 MB)",
   onUploaded,
-  accept = "image/*",
+  accept = IMAGE_ACCEPT,
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -27,14 +28,16 @@ export function FileUpload({
 
   const handleFile = async (file: File) => {
     setError(null);
-    if (!file.type.startsWith("image/")) {
-      setError("Choose an image file. PDF and other documents are not accepted.");
+    if (!isImageFile(file)) {
+      setError("Choose a photo or image file. PDF and other documents are not accepted.");
       return;
     }
     setIsUploading(true);
     setFileName(file.name);
     try {
-      const asset = await api.uploadFile(file, purpose);
+      const prepared = await prepareImageForUpload(file);
+      if (prepared.size > MAX_UPLOAD_BYTES) throw new Error("This photo is larger than 10 MB. Please choose a smaller image.");
+      const asset = await api.uploadFile(prepared, purpose);
       onUploaded(asset.id);
     } catch (err: any) {
       setError(err?.message || "Upload failed");
@@ -46,15 +49,30 @@ export function FileUpload({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
+    e.target.value = "";
+  };
+
+  const [isDragging, setIsDragging] = useState(false);
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && !isUploading) void handleFile(file);
   };
 
   return (
     <div className="w-full">
       {label && <label className="block text-xs font-medium text-slate-700 mb-1">{label}</label>}
       <div
-        onClick={() => inputRef.current?.click()}
-        className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer bg-white"
+        role="button"
+        tabIndex={0}
+        onClick={() => !isUploading && inputRef.current?.click()}
+        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !isUploading) { e.preventDefault(); inputRef.current?.click(); } }}
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        className={`flex flex-col items-center justify-center rounded-xl border border-dashed p-4 text-center transition-colors cursor-pointer ${isDragging ? "border-indigo-400 bg-indigo-50" : "border-slate-300 bg-white hover:bg-slate-50"}`}
       >
         <input
           ref={inputRef}
@@ -77,7 +95,8 @@ export function FileUpload({
         ) : (
           <div className="flex flex-col items-center gap-1 text-slate-600">
             <UploadCloud className="h-5 w-5 text-slate-500" />
-            <span className="text-xs">Click or drag file here</span>
+            <span className="text-xs">Tap to take or choose a photo, or drag an image here</span>
+            <span className="text-[11px] text-slate-400">JPG, PNG, HEIC, WEBP and other image formats</span>
           </div>
         )}
       </div>

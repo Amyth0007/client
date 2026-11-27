@@ -6,6 +6,7 @@ import { ArrowLeft, RotateCcw } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
+import { Paged } from "../../components/common/Pagination.js";
 import { Badge } from "../../components/common/Badge.js";
 import { Modal } from "../../components/common/Modal.js";
 import { TextArea } from "../../components/common/TextArea.js";
@@ -136,7 +137,9 @@ export function PaymentDetailPage() {
         title="Invoice Allocations"
         subtitle="Distribution of this collection across customer bills"
       >
-        <div className="overflow-x-auto">
+        <Paged items={payment.allocations ?? []}>
+          {(pageAllocations: any[]) => (
+          <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-100 text-slate-500 uppercase font-semibold">
@@ -146,9 +149,9 @@ export function PaymentDetailPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {(payment.allocations ?? []).map((alloc: any, idx: number) => (
+              {pageAllocations.map((alloc: any, idx: number) => (
                 <tr
-                  key={idx}
+                  key={`${alloc.invoiceId}-${idx}`}
                   role="link"
                   tabIndex={0}
                   aria-label={`Open invoice ${alloc.invoiceNumber || alloc.invoiceId}`}
@@ -173,6 +176,8 @@ export function PaymentDetailPage() {
             </tbody>
           </table>
         </div>
+          )}
+        </Paged>
       </Card>
 
       {payment.remarks && (

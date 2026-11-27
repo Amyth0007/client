@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, invalidateAuthSession } from "../../services/api-client.js";
+import { api, ApiError, clearImpersonation, invalidateAuthSession, readImpersonation, saveImpersonation, setAccessToken } from "../../services/api-client.js";
 import type { OrganizationModules } from "../platform/module-registry.js";
 
 export type UserProfile = {
@@ -27,7 +27,10 @@ export type UserProfile = {
     showGuides?: boolean;
     currency: string;
     modules?: OrganizationModules;
+    navOrder?: string[];
   } | null;
+  /** Present when a platform admin opened this organization with the master password. */
+  impersonatedBy?: { id: string; name: string; email: string } | null;
 };
 
 type AuthContextType = {
@@ -37,6 +40,10 @@ type AuthContextType = {
   login: (credentials: { email: string; password: string }) => Promise<UserProfile>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /** Platform admin opens an organization as its administrator (full page reload into the organization). */
+  startImpersonation: (organizationId: string, organizationName: string, masterPassword: string) => Promise<void>;
+  /** Leaves the organization and returns to the platform admin's own session. */
+  exitImpersonation: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -89,6 +96,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     const generation = authGenerationRef.current;
     async function initAuth() {
+      // Restore a platform admin's organization session in this tab first; fall back to the normal session.
+      const impersonation = readImpersonation();
+      if (impersonation) {
+        try {
+          setAccessToken(impersonation.accessToken);
+          const profile = await api.getMe();
+          if (mounted && generation === authGenerationRef.current) updateUser(profile);
+          if (mounted) setIsLoading(false);
+          return;
+        } catch {
+          clearImpersonation();
+          invalidateAuthSession();
+        }
+      }
       try {
         const session = await api.refresh();
         if (mounted && generation === authGenerationRef.current) {
@@ -136,6 +157,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearThisTab();
       }
     };
+    const returnToPlatform = () => { window.location.assign("/platform"); };
+    window.addEventListener("impersonation-ended", returnToPlatform);
     window.addEventListener("auth-session-expired", clearThisTab);
     window.addEventListener("storage", onStorage);
     const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("payment-recovery-auth-session") : null;
@@ -146,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
     return () => {
+      window.removeEventListener("impersonation-ended", returnToPlatform);
       window.removeEventListener("auth-session-expired", clearThisTab);
       window.removeEventListener("storage", onStorage);
       channel?.close();
@@ -156,6 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const generation = ++authGenerationRef.current;
     updateUser(null);
     queryClient.clear();
+    clearImpersonation();
     // Revoke any refresh cookie left by a previous account on this browser first.
     await api.logout();
     const session = await api.login(credentials);
@@ -166,7 +191,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return session.user;
   };
 
+  const startImpersonation = async (organizationId: string, organizationName: string, masterPassword: string) => {
+    const session = await api.impersonateOrganization(organizationId, masterPassword);
+    saveImpersonation({ accessToken: session.accessToken, expiresAt: session.expiresAt, organizationName });
+    // Full reload so no platform data stays cached in memory while inside the organization.
+    window.location.assign("/");
+  };
+
+  const exitImpersonation = () => {
+    clearImpersonation();
+    invalidateAuthSession();
+    window.location.assign("/platform");
+  };
+
   const logout = async () => {
+    // Signing out while inside an organization only leaves it; the platform admin stays signed in.
+    if (userRef.current?.impersonatedBy) {
+      exitImpersonation();
+      return;
+    }
     authGenerationRef.current += 1;
     updateUser(null);
     queryClient.clear();
@@ -183,6 +226,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         refreshProfile,
+        startImpersonation,
+        exitImpersonation,
       }}
     >
       {children}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "react-hot-toast";
@@ -9,7 +9,7 @@ import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
 import { Input } from "../../components/common/Input.js";
-import { Select } from "../../components/common/Select.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { MoneyInput } from "../../components/common/MoneyInput.js";
 import { TextArea } from "../../components/common/TextArea.js";
 import { FileUpload } from "../../components/common/FileUpload.js";
@@ -47,6 +47,7 @@ export function InvoiceFormPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     setValue,
     watch,
@@ -162,13 +163,23 @@ export function InvoiceFormPage() {
         <Card title="Invoice Header">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <Select
-                label="Debtor Customer"
-                required
-                placeholder="-- Select a customer --"
-                options={customerOptions}
-                error={errors.customerId?.message}
-                {...register("customerId", { required: "Customer is required" })}
+              <Controller
+                name="customerId"
+                control={control}
+                rules={{ required: "Customer is required" }}
+                render={({ field }) => (
+                  <CustomSelect
+                    label="Debtor Customer"
+                    required
+                    placeholder="Select a customer"
+                    options={customerOptions}
+                    error={errors.customerId?.message}
+                    searchable
+                    name={field.name}
+                    value={field.value ?? ""}
+                    onChange={(e: any) => field.onChange(e.target.value)}
+                  />
+                )}
               />
             </div>
 

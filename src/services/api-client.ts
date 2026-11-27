@@ -112,6 +112,47 @@ export function setAccessToken(token: string | null) {
   inMemoryToken = token;
 }
 
+/**
+ * Platform-admin "open organization" session. Kept per browser tab in sessionStorage so a page reload
+ * stays inside the organization, while the platform admin's own refresh cookie is never replaced.
+ */
+const IMPERSONATION_KEY = "recovr.impersonation";
+export type ImpersonationSession = { accessToken: string; expiresAt: string; organizationName: string };
+
+export function readImpersonation(): ImpersonationSession | null {
+  try {
+    const raw = window.sessionStorage.getItem(IMPERSONATION_KEY);
+    if (!raw) return null;
+    const session = JSON.parse(raw) as ImpersonationSession;
+    if (!session?.accessToken || !session.expiresAt || new Date(session.expiresAt).getTime() <= Date.now()) {
+      window.sessionStorage.removeItem(IMPERSONATION_KEY);
+      return null;
+    }
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+export function saveImpersonation(session: ImpersonationSession) {
+  window.sessionStorage.setItem(IMPERSONATION_KEY, JSON.stringify(session));
+}
+
+export function clearImpersonation() {
+  try { window.sessionStorage.removeItem(IMPERSONATION_KEY); } catch { /* storage unavailable */ }
+}
+
+export function isImpersonating() {
+  return readImpersonation() !== null;
+}
+
+/** Ends an organization session that expired or was revoked and returns to the platform admin's own session. */
+function endExpiredImpersonation() {
+  clearImpersonation();
+  invalidateAuthSession();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("impersonation-ended"));
+}
+
 export function invalidateAuthSession() {
   authSessionGeneration += 1;
   inMemoryToken = null;
@@ -173,7 +214,9 @@ async function performRequest<T>(
     });
 
   // Handle 401 and try refresh once
-  if (res.status === 401 && requestGeneration === authSessionGeneration && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
+  if (res.status === 401 && requestGeneration === authSessionGeneration && isImpersonating()) {
+    endExpiredImpersonation();
+  } else if (res.status === 401 && requestGeneration === authSessionGeneration && !isRetry && !path.startsWith("/auth/login") && !path.startsWith("/auth/refresh")) {
     const token = await refreshAccessToken(requestGeneration);
     if (token && requestGeneration === authSessionGeneration) return request<T>(path, options, true);
     if (requestGeneration === authSessionGeneration) notifySessionExpired();
@@ -280,6 +323,11 @@ export const api = {
   },
   getMe: async () => {
     const res = await request<any>("/auth/me");
+    return res.data;
+  },
+  changePassword: async (data: { currentPassword: string; newPassword: string }) => {
+    const res = await request<{ accessToken: string; user: any }>("/auth/change-password", { method: "POST", body: JSON.stringify(data) });
+    setAccessToken(res.data.accessToken);
     return res.data;
   },
   // Organization & Employees
@@ -592,6 +640,10 @@ export const api = {
     const res = await request<any>("/reports/dashboard");
     return res.data;
   },
+  getOverviewInsights: async () => {
+    const res = await request<any>("/reports/overview");
+    return res.data;
+  },
   getAgingBuckets: async () => {
     const res = await request<any>("/reports/aging");
     return res.data;
@@ -698,6 +750,22 @@ export const api = {
     const res = await request<any>(`/platform/organizations/${id}/modules/${moduleId}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
     return res.data;
   },
+  getPlatformInsights: async () => {
+    const res = await request<any>("/platform/insights");
+    return res.data;
+  },
+  getOrganizationInsights: async (id: string) => {
+    const res = await request<any>(`/platform/organizations/${id}/insights`);
+    return res.data;
+  },
+  impersonateOrganization: async (id: string, masterPassword: string) => {
+    const res = await request<{ accessToken: string; expiresAt: string; user: any }>(`/platform/organizations/${id}/impersonate`, { method: "POST", body: JSON.stringify({ masterPassword }) });
+    return res.data;
+  },
+  resetOrganizationAdminPassword: async (id: string, userId: string, temporaryPassword: string) => {
+    const res = await request<any>(`/platform/organizations/${id}/admins/${userId}/password`, { method: "POST", body: JSON.stringify({ temporaryPassword }) });
+    return res.data;
+  },
 
   // Files
   uploadFile: async (file: File, purpose: string) => {
@@ -733,7 +801,9 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     let response = await fetchBlob(inMemoryToken);
-    if (response.status === 401) {
+    if (response.status === 401 && isImpersonating()) {
+      endExpiredImpersonation();
+    } else if (response.status === 401) {
       const refreshed = await trackedFetch(apiUrl("/auth/refresh"), { method: "POST", credentials: "include" });
       if (refreshed.ok) {
         const payload = await refreshed.json();

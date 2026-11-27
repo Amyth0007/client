@@ -1,15 +1,29 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "react-router";
 import { Plus, Target } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Badge } from "../../components/common/Badge.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
+import { DataTable } from "../../components/common/DataTable.js";
 import { EmptyState } from "../../components/common/EmptyState.js";
 import { QueryError } from "../../components/common/QueryError.js";
 import { useAuth } from "../auth/AuthContext.js";
 import { FilterButton, FilterDialog } from "../../components/common/FilterDialog.js";
+
+const RECOVERY_STATUS_OPTIONS = [
+  { value: "assigned", label: "Assigned" },
+  { value: "in_progress", label: "In progress" },
+  { value: "visit_scheduled", label: "Visit scheduled" },
+  { value: "visit_completed", label: "Visit completed" },
+  { value: "payment_committed", label: "Payment committed" },
+  { value: "partially_recovered", label: "Partially recovered" },
+  { value: "fully_recovered", label: "Fully recovered" },
+  { value: "escalated", label: "Escalated" },
+  { value: "closed", label: "Closed" },
+];
 
 export function RecoveryListPage() {
   const { user } = useAuth();
@@ -19,9 +33,12 @@ export function RecoveryListPage() {
   const [toDate, setToDate] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const navigate = useNavigate();
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["recovery-assignments", { status, priority, fromDate, toDate, page }],
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    placeholderData: keepPreviousData,
+    queryKey: ["recovery-assignments", { status, priority, fromDate, toDate, page, pageSize }],
     queryFn: () =>
       api.listRecoveryAssignments({
         status: (status as any) || undefined,
@@ -29,12 +46,15 @@ export function RecoveryListPage() {
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         page,
-        limit: 15,
+        limit: pageSize,
       }),
   });
 
   const assignments = data?.data ?? [];
   const meta = data?.meta;
+  const isFieldUser = user?.role === "field_recovery" || user?.role === "employee";
+  const hasFilters = Boolean(status || priority || fromDate || toDate);
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-6">
@@ -48,127 +68,66 @@ export function RecoveryListPage() {
       />
       <FilterDialog isOpen={filterOpen} onClose={() => setFilterOpen(false)} onClear={() => { setStatus(""); setPriority(""); setFromDate(""); setToDate(""); setPage(1); }}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="text-xs text-slate-600">Assignment status<select
-            value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
-              setPage(1);
-            }}
-            className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">All Statuses</option>
-            <option value="assigned">Assigned</option>
-            <option value="in_progress">In Progress</option>
-            <option value="visit_scheduled">Visit Scheduled</option>
-            <option value="visit_completed">Visit Completed</option>
-            <option value="payment_committed">Payment Committed</option>
-            <option value="partially_recovered">Partially Recovered</option>
-            <option value="fully_recovered">Fully Recovered</option>
-            <option value="escalated">Escalated</option>
-            <option value="closed">Closed</option>
-          </select></label>
-
-          <label className="text-xs text-slate-600">Priority<select
-            value={priority}
-            onChange={(e) => {
-              setPriority(e.target.value);
-              setPage(1);
-            }}
-            className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">All Priorities</option>
-            <option value="high">High Priority</option>
-            <option value="medium">Medium Priority</option>
-            <option value="low">Low Priority</option>
-          </select></label>
+          <CustomSelect label="Assignment status" portal value={status} placeholder="All statuses" onChange={(e: any) => { setStatus(e.target.value); setPage(1); }} options={RECOVERY_STATUS_OPTIONS} />
+          <CustomSelect label="Priority" portal value={priority} placeholder="All priorities" onChange={(e: any) => { setPriority(e.target.value); setPage(1); }} options={[{ value: "high", label: "High priority" }, { value: "medium", label: "Medium priority" }, { value: "low", label: "Low priority" }]} />
           <label className="text-xs text-slate-600">Assigned from<input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           <label className="text-xs text-slate-600">Assigned to<input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => { setToDate(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         </div>
       </FilterDialog>
 
-      {/* List */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 bg-white rounded-xl border border-slate-200 animate-pulse" />
-          ))}
-        </div>
-      ) : isError ? (
+      {isError ? (
         <QueryError message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
-      ) : assignments.length === 0 ? (
+      ) : !isLoading && assignments.length === 0 && !hasFilters ? (
         <EmptyState
           icon={Target}
           title="No recovery assignments"
           description="Assign overdue invoices to field recovery executives to schedule visits and collect promises."
-          action={
+          action={isFieldUser ? undefined : (
             <Link to="/recovery/new">
               <Button size="sm">New Assignment</Button>
             </Link>
-          }
+          )}
         />
       ) : (
-        <div className="space-y-3">
-          {assignments.map((item: any) => (
-            <Link
-              key={item.id}
-              to={`/recovery/${item.id}`}
-              className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
-            >
-              <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="min-w-0 break-words text-sm font-bold text-slate-950">
-                      {item.customer?.displayName || "Customer"}
-                    </span>
-                    <Badge variant={item.priority === "high" ? "danger" : "neutral"}>
-                      {item.priority}
-                    </Badge>
-                    <Badge variant="info">{item.status.replace("_", " ")}</Badge>
+        <DataTable
+          rows={assignments}
+          rowKey={(item: any) => item.id}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          onRowClick={(item: any) => navigate(`/recovery/${item.id}`)}
+          rowLabel={(item: any) => `Open recovery assignment for ${item.customer?.displayName || "customer"}`}
+          empty={<p className="px-4 py-10 text-center text-sm text-slate-500">No assignments match your filters.</p>}
+          pagination={{
+            page,
+            pageSize,
+            total: meta?.total ?? 0,
+            onPageChange: setPage,
+            onPageSizeChange: (size) => { setPageSize(size); setPage(1); },
+          }}
+          columns={[
+            {
+              key: "customer",
+              header: "Customer",
+              cell: (item: any) => (
+                <div className="min-w-0">
+                  <p className="max-w-[13rem] truncate font-semibold text-slate-900">{item.customer?.displayName || "Customer"}</p>
+                  <p className="mt-0.5 max-w-[13rem] truncate text-[11px] text-slate-500 md:hidden">{item.assignee?.name || "Unassigned"}</p>
+                  <div className="mt-1 flex flex-wrap gap-1 sm:hidden">
+                    <Badge variant="info" className="px-1.5! py-0! text-[10px]!">{item.status.replace(/_/g, " ")}</Badge>
+                    {item.priority === "high" && <Badge variant="danger" className="px-1.5! py-0! text-[10px]!">high</Badge>}
                   </div>
-
-                  <p className="text-xs text-slate-600 mt-1">
-                    Assignee:{" "}
-                    <span className="font-semibold text-slate-700">
-                      {item.assignee?.name || "Unassigned"}
-                    </span>
-                  </p>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Assigned</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{item.assignedOn}</p></div>
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Visit deadline</p><p className="mt-1 break-words text-sm font-semibold text-rose-700">{item.visitDeadline}</p></div>
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoices</p><p className="mt-1 text-sm font-semibold text-slate-900">{item.invoices?.length ?? 0}</p></div>
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Target balance</p><p className="mt-1 break-words text-sm font-bold text-slate-950">{formatMoney(item.outstandingSnapshotMinor)}</p></div>
-                  </div>
-              </div>
-            </Link>
-          ))}
-
-          {/* Pagination */}
-          {meta && meta.total > meta.limit && (
-            <div className="flex items-center justify-between pt-4">
-              <span className="text-xs text-slate-600">
-                Page {meta.page} of {Math.ceil(meta.total / meta.limit)} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= Math.ceil(meta.total / meta.limit)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+                </div>
+              ),
+            },
+            { key: "assignee", header: "Assignee", className: "hidden md:table-cell", cell: (item: any) => <span className="block max-w-[10rem] truncate">{item.assignee?.name || "Unassigned"}</span> },
+            { key: "priority", header: "Priority", className: "hidden sm:table-cell", cell: (item: any) => <Badge variant={item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "neutral"}>{item.priority}</Badge> },
+            { key: "status", header: "Status", className: "hidden sm:table-cell", cell: (item: any) => <Badge variant="info">{item.status.replace(/_/g, " ")}</Badge> },
+            { key: "assignedOn", header: "Assigned", className: "hidden whitespace-nowrap lg:table-cell", cell: (item: any) => item.assignedOn },
+            { key: "deadline", header: "Deadline", className: "whitespace-nowrap", cell: (item: any) => <span className={item.visitDeadline && item.visitDeadline < todayStr && !["fully_recovered", "closed"].includes(item.status) ? "font-semibold text-rose-700" : ""}>{item.visitDeadline || "—"}</span> },
+            { key: "invoices", header: "Invoices", align: "center", className: "hidden lg:table-cell", cell: (item: any) => item.invoices?.length ?? 0 },
+            { key: "target", header: "Target", align: "right", className: "whitespace-nowrap", cell: (item: any) => <span className="font-semibold text-slate-900">{formatMoney(item.outstandingSnapshotMinor)}</span> },
+          ]}
+        />
       )}
     </div>
   );

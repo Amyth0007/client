@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "react-router";
 import { Plus, CreditCard } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
 import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Badge } from "../../components/common/Badge.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
+import { DataTable } from "../../components/common/DataTable.js";
 import { EmptyState } from "../../components/common/EmptyState.js";
 import { QueryError } from "../../components/common/QueryError.js";
 import { FilterButton, FilterDialog } from "../../components/common/FilterDialog.js";
@@ -16,21 +18,25 @@ export function PaymentListPage() {
   const [toDate, setToDate] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const navigate = useNavigate();
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["payments", { kind, fromDate, toDate, page }],
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    placeholderData: keepPreviousData,
+    queryKey: ["payments", { kind, fromDate, toDate, page, pageSize }],
     queryFn: () =>
       api.listPayments({
         kind: (kind as any) || undefined,
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
         page,
-        limit: 15,
+        limit: pageSize,
       }),
   });
 
   const payments = data?.data ?? [];
   const meta = data?.meta;
+  const hasFilters = Boolean(kind || fromDate || toDate);
 
   return (
     <div className="space-y-6">
@@ -46,33 +52,15 @@ export function PaymentListPage() {
       />
       <FilterDialog isOpen={filterOpen} onClose={() => setFilterOpen(false)} onClear={() => { setKind(""); setFromDate(""); setToDate(""); setPage(1); }}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="text-xs text-slate-600">Transaction type<select
-            value={kind}
-            onChange={(e) => {
-              setKind(e.target.value);
-              setPage(1);
-            }}
-            className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">All Transactions</option>
-            <option value="collection">Collections (Receipts)</option>
-            <option value="reversal">Reversals</option>
-          </select></label>
+          <CustomSelect label="Transaction type" className="sm:col-span-2" portal value={kind} placeholder="All transactions" onChange={(e: any) => { setKind(e.target.value); setPage(1); }} options={[{ value: "collection", label: "Collections (receipts)" }, { value: "reversal", label: "Reversals" }]} />
           <label className="text-xs text-slate-600">Payment date from<input type="date" value={fromDate} max={toDate || undefined} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
           <label className="text-xs text-slate-600">Payment date to<input type="date" value={toDate} min={fromDate || undefined} onChange={(e) => { setToDate(e.target.value); setPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" /></label>
         </div>
       </FilterDialog>
 
-      {/* List */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 bg-white rounded-xl border border-slate-200 animate-pulse" />
-          ))}
-        </div>
-      ) : isError ? (
+      {isError ? (
         <QueryError message={error instanceof Error ? error.message : undefined} onRetry={() => void refetch()} />
-      ) : payments.length === 0 ? (
+      ) : !isLoading && payments.length === 0 && !hasFilters ? (
         <EmptyState
           icon={CreditCard}
           title="No payments recorded"
@@ -84,65 +72,52 @@ export function PaymentListPage() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          {payments.map((p: any) => (
-            <Link
-              key={p.id}
-              to={`/payments/${p.id}`}
-              className="block min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition-all hover:border-indigo-300 hover:shadow-sm sm:p-4"
-            >
-              <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="min-w-0 break-words text-sm font-bold text-slate-950">
-                      {p.paymentReference}
-                    </span>
-                    <Badge variant={p.kind === "collection" ? "success" : "danger"}>
-                      {p.kind}
-                    </Badge>
-                    {p.reversedAt && <Badge variant="warning">Reversed</Badge>}
-                  </div>
-
-                  <p className="mt-2 break-words text-sm font-semibold text-slate-800">
-                    {p.customer?.displayName || "Customer"}
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-4">
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Payment date</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{p.paymentDate}</p></div>
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Method</p><p className="mt-1 break-words text-sm font-semibold capitalize text-slate-900">{p.mode.replace("_", " ")}</p></div>
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Amount</p><p className={`mt-1 break-words text-sm font-bold ${p.kind === "collection" ? "text-emerald-700" : "text-rose-700"}`}>{p.kind === "collection" ? "+" : "-"}{formatMoney(p.amountMinor)}</p></div>
-                    <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Invoices allocated</p><p className="mt-1 text-sm font-semibold text-slate-900">{p.allocations?.length ?? 0}</p></div>
-                    {p.transactionReference && <div className="min-w-0 sm:col-span-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Transaction reference</p><p className="mt-1 break-all text-sm font-medium text-slate-800">{p.transactionReference}</p></div>}
-                  </div>
-              </div>
-            </Link>
-          ))}
-
-          {/* Pagination */}
-          {meta && meta.total > meta.limit && (
-            <div className="flex items-center justify-between pt-4">
-              <span className="text-xs text-slate-600">
-                Page {meta.page} of {Math.ceil(meta.total / meta.limit)} ({meta.total} total)
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={page >= Math.ceil(meta.total / meta.limit)}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+        <DataTable
+          rows={payments}
+          rowKey={(p: any) => p.id}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          onRowClick={(p: any) => navigate(`/payments/${p.id}`)}
+          rowLabel={(p: any) => `Open payment ${p.paymentReference}`}
+          empty={<p className="px-4 py-10 text-center text-sm text-slate-500">No payments match your filters.</p>}
+          pagination={{
+            page,
+            pageSize,
+            total: meta?.total ?? 0,
+            onPageChange: setPage,
+            onPageSizeChange: (size) => { setPageSize(size); setPage(1); },
+          }}
+          columns={[
+            {
+              key: "reference",
+              header: "Reference",
+              cell: (p: any) => (
+                <div className="min-w-0">
+                  <p className="max-w-[12rem] truncate font-semibold text-slate-900">{p.paymentReference}</p>
+                  <p className="mt-0.5 max-w-[12rem] truncate text-[11px] text-slate-500 sm:hidden">{p.customer?.displayName || "Customer"}</p>
+                  {p.transactionReference && <p className="hidden max-w-[12rem] truncate text-[11px] text-slate-500 lg:block">Txn: {p.transactionReference}</p>}
+                  {p.reversedAt && <Badge variant="warning" className="mt-1 px-1.5! py-0! text-[10px]! sm:hidden">Reversed</Badge>}
+                </div>
+              ),
+            },
+            { key: "customer", header: "Customer", className: "hidden sm:table-cell", cell: (p: any) => <span className="block max-w-[14rem] truncate font-medium text-slate-800">{p.customer?.displayName || "Customer"}</span> },
+            { key: "date", header: "Date", className: "whitespace-nowrap", cell: (p: any) => p.paymentDate },
+            { key: "mode", header: "Method", className: "hidden capitalize md:table-cell", cell: (p: any) => (p.mode ?? "").replace(/_/g, " ") },
+            { key: "allocations", header: "Invoices", align: "center", className: "hidden lg:table-cell", cell: (p: any) => p.allocations?.length ?? 0 },
+            {
+              key: "type",
+              header: "Type",
+              className: "hidden sm:table-cell",
+              cell: (p: any) => (
+                <div className="flex flex-wrap gap-1">
+                  <Badge variant={p.kind === "collection" ? "success" : "danger"}>{p.kind}</Badge>
+                  {p.reversedAt && <Badge variant="warning">Reversed</Badge>}
+                </div>
+              ),
+            },
+            { key: "amount", header: "Amount", align: "right", className: "whitespace-nowrap", cell: (p: any) => <span className={`font-semibold ${p.kind === "collection" ? "text-emerald-700" : "text-rose-700"}`}>{p.kind === "collection" ? "+" : "-"}{formatMoney(p.amountMinor)}</span> },
+          ]}
+        />
       )}
     </div>
   );

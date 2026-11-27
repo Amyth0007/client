@@ -1,6 +1,7 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CustomSelect } from "./CustomSelect.js";
 
 const PAGE_SIZES = [10, 25, 50, 100];
 
@@ -37,9 +38,17 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
       <div className="flex items-center gap-2">
         <span>Showing <strong className="text-slate-900">{from}–{to}</strong> of <strong className="text-slate-900">{total}</strong></span>
         {onPageSizeChange && (
-          <select aria-label="Rows per page" value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
-            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} / page</option>)}
-          </select>
+          <CustomSelect
+            className="w-28!"
+            size="sm"
+            aria-label="Rows per page"
+            value={pageSize}
+            required
+            portal
+            searchable={false}
+            options={PAGE_SIZES.map((size) => ({ value: size, label: `${size} / page` }))}
+            onChange={(event: { target: { value: string } }) => onPageSizeChange(Number(event.target.value))}
+          />
         )}
       </div>
       <div className="flex items-center gap-1">

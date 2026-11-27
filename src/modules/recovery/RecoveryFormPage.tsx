@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import { RecoveryInvoicePicker } from "./RecoveryInvoicePicker.js";
 import { toast } from "react-hot-toast";
 import { ArrowLeft, Target } from "lucide-react";
 import { api, formatMoney } from "../../services/api-client.js";
@@ -9,7 +10,7 @@ import { PageHeader } from "../../components/common/PageHeader.js";
 import { Button } from "../../components/common/Button.js";
 import { Card } from "../../components/common/Card.js";
 import { Input } from "../../components/common/Input.js";
-import { Select } from "../../components/common/Select.js";
+import { CustomSelect } from "../../components/common/CustomSelect.js";
 import { TextArea } from "../../components/common/TextArea.js";
 
 function addDays(dateStr: string, days: number): string {
@@ -26,10 +27,11 @@ export function RecoveryFormPage() {
   const navigate = useNavigate();
   const todayStr = new Date().toISOString().slice(0, 10);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [selectedInvoices, setSelectedInvoices] = useState<Record<string, any>>({});
 
   const {
     register,
+    control,
     handleSubmit,
     watch,
     formState: { errors },
@@ -57,36 +59,6 @@ export function RecoveryFormPage() {
     queryFn: () => api.listEmployees({ limit: 100 }),
   });
 
-  // Load Invoices for chosen customer
-  const { data: invoicesData, isLoading: invoicesLoading } = useQuery({
-    queryKey: ["customer-open-invoices", customerId],
-    queryFn: () =>
-      customerId
-        ? api.listInvoices({
-            customerId,
-            documentStatus: "issued",
-            limit: 100,
-          })
-        : null,
-    enabled: Boolean(customerId),
-  });
-
-  const openInvoices = (invoicesData?.data ?? []).filter((inv: any) => inv.outstandingMinor > 0);
-
-  const toggleInvoice = (id: string) => {
-    setSelectedInvoiceIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
-    );
-  };
-
-  const selectAllInvoices = () => {
-    if (selectedInvoiceIds.length === openInvoices.length) {
-      setSelectedInvoiceIds([]);
-    } else {
-      setSelectedInvoiceIds(openInvoices.map((inv: any) => inv.id));
-    }
-  };
-
   const customerOptions = (customersData?.data ?? []).map((c: any) => ({
     value: c.id,
     label: `${c.displayName}${c.companyName ? ` (${c.companyName})` : ""}`,
@@ -97,9 +69,8 @@ export function RecoveryFormPage() {
     label: `${e.name} (${e.role === "accounts_manager" ? "Account Manager" : e.role === "field_recovery" ? "Field Executive" : e.role === "employee" ? "Employee" : "Organization Admin"})`,
   }));
 
-  const selectedOutstandingMinor = openInvoices
-    .filter((inv: any) => selectedInvoiceIds.includes(inv.id))
-    .reduce((sum: number, inv: any) => sum + inv.outstandingMinor, 0);
+  const selectedInvoiceIds = Object.keys(selectedInvoices);
+  const selectedOutstandingMinor = Object.values(selectedInvoices).reduce((sum: number, inv: any) => sum + (inv.outstandingMinor ?? 0), 0);
 
   const onSubmit = async (values: any) => {
     if (selectedInvoiceIds.length === 0) {
@@ -145,33 +116,62 @@ export function RecoveryFormPage() {
         <Card title="Assignment Parameters">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <Select
-                label="Debtor Customer"
-                required
-                placeholder="-- Select Customer to recover from --"
-                options={customerOptions}
-                error={errors.customerId?.message}
-                {...register("customerId", { required: "Customer is required" })}
+              <Controller
+                name="customerId"
+                control={control}
+                rules={{ required: "Customer is required" }}
+                render={({ field }) => (
+                  <CustomSelect
+                    label="Debtor Customer"
+                    required
+                    placeholder="Select Customer to recover from"
+                    options={customerOptions}
+                    error={errors.customerId?.message}
+                    searchable
+                    name={field.name}
+                    value={field.value ?? ""}
+                    onChange={(e: any) => { if (e.target.value !== field.value) setSelectedInvoices({}); field.onChange(e.target.value); }}
+                  />
+                )}
               />
             </div>
 
-            <Select
-              label="Assigned Executive"
-              required
-              placeholder="-- Select Field Executive / Manager --"
-              options={employeeOptions}
-              error={errors.assigneeId?.message}
-              {...register("assigneeId", { required: "Assignee is required" })}
+            <Controller
+              name="assigneeId"
+              control={control}
+              rules={{ required: "Assignee is required" }}
+              render={({ field }) => (
+                <CustomSelect
+                  label="Assigned Executive"
+                  required
+                  placeholder="Select Field Executive / Manager"
+                  options={employeeOptions}
+                  error={errors.assigneeId?.message}
+                  searchable
+                  name={field.name}
+                  value={field.value ?? ""}
+                  onChange={(e: any) => field.onChange(e.target.value)}
+                />
+              )}
             />
 
-            <Select
-              label="Priority Level"
-              options={[
-                { value: "low", label: "Low Priority" },
-                { value: "medium", label: "Medium Priority" },
-                { value: "high", label: "High Priority (Urgent)" },
-              ]}
-              {...register("priority")}
+            <Controller
+              name="priority"
+              control={control}
+              render={({ field }) => (
+                <CustomSelect
+                  label="Priority Level"
+                  required
+                  options={[
+                    { value: "low", label: "Low Priority" },
+                    { value: "medium", label: "Medium Priority" },
+                    { value: "high", label: "High Priority (Urgent)" },
+                  ]}
+                  name={field.name}
+                  value={field.value ?? ""}
+                  onChange={(e: any) => field.onChange(e.target.value)}
+                />
+              )}
             />
 
             <div className="sm:col-span-2">
@@ -188,77 +188,18 @@ export function RecoveryFormPage() {
         {/* Invoice Selector */}
         <Card
           title="Select Invoices to Recover"
-          subtitle={
-            customerId
-              ? "Select which overdue invoices the executive must visit for"
-              : "Select a customer above to load outstanding invoices"
-          }
-          action={
-            openInvoices.length > 0 && (
-              <button
-                type="button"
-                onClick={selectAllInvoices}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-              >
-                {selectedInvoiceIds.length === openInvoices.length ? "Deselect All" : "Select All"}
-              </button>
-            )
-          }
+          subtitle={customerId ? "Only unpaid invoices that are not already in an open recovery assignment are listed" : "Select a customer above to load outstanding invoices"}
+          contentClassName="p-0!"
         >
           {!customerId ? (
-            <p className="text-xs text-slate-500 py-6 text-center">
-              Please choose a customer first to view outstanding invoices.
-            </p>
-          ) : invoicesLoading ? (
-            <div className="space-y-2 py-4">
-              <div className="h-10 bg-slate-100 animate-pulse rounded" />
-              <div className="h-10 bg-slate-100 animate-pulse rounded" />
-            </div>
-          ) : openInvoices.length === 0 ? (
-            <p className="text-xs text-slate-500 py-6 text-center">
-              No outstanding invoices found for this customer.
-            </p>
+            <p className="px-5 py-8 text-center text-xs text-slate-500">Please choose a customer first to view outstanding invoices.</p>
           ) : (
-            <div className="space-y-2">
-              {openInvoices.map((inv: any) => {
-                const isSelected = selectedInvoiceIds.includes(inv.id);
-                return (
-                  <div
-                    key={inv.id}
-                    onClick={() => toggleInvoice(inv.id)}
-                    className={`flex items-center justify-between p-3 rounded-xl border transition-colors cursor-pointer text-xs ${
-                      isSelected
-                        ? "border-indigo-300 bg-indigo-50/50"
-                        : "border-slate-200 bg-white hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => {}} // handled by parent onClick
-                        className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
-                      />
-                      <div>
-                        <span className="font-bold text-slate-900">{inv.invoiceNumber}</span>
-                        <span className="text-slate-500 ml-2">Due: {inv.dueDate}</span>
-                      </div>
-                    </div>
-                    <span className="font-bold text-slate-900">
-                      {formatMoney(inv.outstandingMinor)}
-                    </span>
-                  </div>
-                );
-              })}
-
-              <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-                <span className="text-slate-600">
-                  {selectedInvoiceIds.length} of {openInvoices.length} invoices selected
-                </span>
-                <span className="font-bold text-indigo-600 text-sm">
-                  Total Snapshot: {formatMoney(selectedOutstandingMinor)}
-                </span>
-              </div>
+            <RecoveryInvoicePicker customerId={customerId} selected={selectedInvoices} onChange={setSelectedInvoices} />
+          )}
+          {selectedInvoiceIds.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-indigo-100 bg-indigo-50/60 px-4 py-3 text-xs sm:px-5">
+              <span className="text-slate-700"><strong className="text-slate-900">{selectedInvoiceIds.length}</strong> invoice{selectedInvoiceIds.length === 1 ? "" : "s"} selected · <button type="button" onClick={() => setSelectedInvoices({})} className="font-semibold text-indigo-700 hover:underline">Clear</button></span>
+              <span className="text-sm font-bold text-indigo-700">Total: {formatMoney(selectedOutstandingMinor)}</span>
             </div>
           )}
         </Card>
